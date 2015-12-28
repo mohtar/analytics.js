@@ -182,6 +182,7 @@ var cookie = require('./cookie');
 var debug = require('debug');
 var defaults = require('defaults');
 var each = require('each');
+var foldl = require('foldl');
 var group = require('./group');
 var is = require('is');
 var isMeta = require('is-meta');
@@ -234,7 +235,7 @@ function Analytics() {
   var self = this;
   this.on('initialize', function(settings, options){
     if (options.initialPageview) self.page();
-    self._parseQuery();
+    self._parseQuery(window.location.search);
   });
 }
 
@@ -788,17 +789,44 @@ Analytics.prototype.reset = function(){
 /**
  * Parse the query string for callable methods.
  *
+ * @param {String} query
  * @return {Analytics}
  * @api private
  */
 
-Analytics.prototype._parseQuery = function() {
-  // Identify and track any `ajs_uid` and `ajs_event` parameters in the URL.
-  var q = querystring.parse(window.location.search);
-  if (q.ajs_uid) this.identify(q.ajs_uid);
-  if (q.ajs_event) this.track(q.ajs_event);
+Analytics.prototype._parseQuery = function(query) {
+  // Parse querystring to an object
+  var q = querystring.parse(query);
+  // Create traits and properties objects, populate from querysting params
+  var traits = pickPrefix('ajs_trait_', q);
+  var props = pickPrefix('ajs_prop_', q);
+  // Trigger based on callable parameters in the URL
+  if (q.ajs_uid) this.identify(q.ajs_uid, traits);
+  if (q.ajs_event) this.track(q.ajs_event, props);
   if (q.ajs_aid) user.anonymousId(q.ajs_aid);
   return this;
+
+  /**
+   * Create a shallow copy of an input object containing only the properties
+   * whose keys are specified by a prefix, stripped of that prefix
+   *
+   * @param {String} prefix
+   * @param {Object} object
+   * @return {Object}
+   * @api private
+   */
+
+  function pickPrefix(prefix, object) {
+    var length = prefix.length;
+    var sub;
+    return foldl(function(acc, val, key) {
+      if (key.substr(0, length) === prefix) {
+        sub = key.substr(length);
+        acc[sub] = val;
+      }
+      return acc;
+    }, {}, object);
+  }
 };
 
 /**
@@ -828,8 +856,7 @@ Analytics.prototype.noConflict = function(){
   return this;
 };
 
-
-}, {"emitter":8,"facade":9,"after":10,"bind":11,"callback":12,"clone":13,"./cookie":14,"debug":15,"defaults":16,"each":4,"./group":17,"is":18,"is-meta":19,"object":20,"./memory":21,"./normalize":22,"event":23,"./pageDefaults":24,"pick":25,"prevent":26,"querystring":27,"./store":28,"./user":29}],
+}, {"emitter":8,"facade":9,"after":10,"bind":11,"callback":12,"clone":13,"./cookie":14,"debug":15,"defaults":16,"each":4,"foldl":17,"./group":18,"is":19,"is-meta":20,"object":21,"./memory":22,"./normalize":23,"event":24,"./pageDefaults":25,"pick":26,"prevent":27,"querystring":28,"./store":29,"./user":30}],
 8: [function(require, module, exports) {
 
 /**
@@ -996,8 +1023,8 @@ Emitter.prototype.hasListeners = function(event){
   return !! this.listeners(event).length;
 };
 
-}, {"indexof":30}],
-30: [function(require, module, exports) {
+}, {"indexof":31}],
+31: [function(require, module, exports) {
 module.exports = function(arr, obj){
   if (arr.indexOf) return arr.indexOf(obj);
   for (var i = 0; i < arr.length; ++i) {
@@ -1027,8 +1054,8 @@ Facade.Track = require('./track');
 Facade.Page = require('./page');
 Facade.Screen = require('./screen');
 
-}, {"./facade":31,"./alias":32,"./group":33,"./identify":34,"./track":35,"./page":36,"./screen":37}],
-31: [function(require, module, exports) {
+}, {"./facade":32,"./alias":33,"./group":34,"./identify":35,"./track":36,"./page":37,"./screen":38}],
+32: [function(require, module, exports) {
 
 var traverse = require('isodate-traverse');
 var isEnabled = require('./is-enabled');
@@ -1339,8 +1366,8 @@ function transform(obj){
   return cloned;
 }
 
-}, {"isodate-traverse":38,"./is-enabled":39,"./utils":40,"./address":41,"obj-case":42,"new-date":43}],
-38: [function(require, module, exports) {
+}, {"isodate-traverse":39,"./is-enabled":40,"./utils":41,"./address":42,"obj-case":43,"new-date":44}],
+39: [function(require, module, exports) {
 
 var is = require('is');
 var isodate = require('isodate');
@@ -1412,8 +1439,8 @@ function array (arr, strict) {
   return arr;
 }
 
-}, {"is":44,"isodate":45,"each":4}],
-44: [function(require, module, exports) {
+}, {"is":45,"isodate":46,"each":4}],
+45: [function(require, module, exports) {
 
 var isEmpty = require('is-empty');
 
@@ -1489,8 +1516,8 @@ function generate (type) {
     return type === typeOf(value);
   };
 }
-}, {"is-empty":46,"type":47,"component-type":47}],
-46: [function(require, module, exports) {
+}, {"is-empty":47,"type":48,"component-type":48}],
+47: [function(require, module, exports) {
 
 /**
  * Expose `isEmpty`.
@@ -1521,7 +1548,7 @@ function isEmpty (val) {
   return true;
 }
 }, {}],
-47: [function(require, module, exports) {
+48: [function(require, module, exports) {
 /**
  * toString ref.
  */
@@ -1550,15 +1577,27 @@ module.exports = function(val){
   if (val !== val) return 'nan';
   if (val && val.nodeType === 1) return 'element';
 
+  if (isBuffer(val)) return 'buffer';
+
   val = val.valueOf
     ? val.valueOf()
-    : Object.prototype.valueOf.apply(val)
+    : Object.prototype.valueOf.apply(val);
 
   return typeof val;
 };
 
+// code borrowed from https://github.com/feross/is-buffer/blob/master/index.js
+function isBuffer(obj) {
+  return !!(obj != null &&
+    (obj._isBuffer || // For Safari 5-7 (missing Object.prototype.constructor)
+      (obj.constructor &&
+      typeof obj.constructor.isBuffer === 'function' &&
+      obj.constructor.isBuffer(obj))
+    ))
+}
+
 }, {}],
-45: [function(require, module, exports) {
+46: [function(require, module, exports) {
 
 /**
  * Matcher, slightly modified from:
@@ -1707,8 +1746,8 @@ function array(obj, fn) {
     fn(obj[i], i);
   }
 }
-}, {"type":47}],
-39: [function(require, module, exports) {
+}, {"type":48}],
+40: [function(require, module, exports) {
 
 /**
  * A few integrations are disabled by default. They must be explicitly
@@ -1730,7 +1769,7 @@ module.exports = function (integration) {
   return ! disabled[integration];
 };
 }, {}],
-40: [function(require, module, exports) {
+41: [function(require, module, exports) {
 
 /**
  * TODO: use component symlink, everywhere ?
@@ -1746,8 +1785,8 @@ try {
   exports.type = require('type-component');
 }
 
-}, {"inherit":48,"clone":49,"type":47}],
-48: [function(require, module, exports) {
+}, {"inherit":49,"clone":50,"type":48}],
+49: [function(require, module, exports) {
 
 module.exports = function(a, b){
   var fn = function(){};
@@ -1756,7 +1795,7 @@ module.exports = function(a, b){
   a.prototype.constructor = a;
 };
 }, {}],
-49: [function(require, module, exports) {
+50: [function(require, module, exports) {
 /**
  * Module dependencies.
  */
@@ -1815,8 +1854,8 @@ function clone(obj){
   }
 }
 
-}, {"component-type":47,"type":47}],
-41: [function(require, module, exports) {
+}, {"component-type":48,"type":48}],
+42: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -1854,8 +1893,8 @@ module.exports = function(proto){
   }
 };
 
-}, {"obj-case":42}],
-42: [function(require, module, exports) {
+}, {"obj-case":43}],
+43: [function(require, module, exports) {
 
 var identity = function(_){ return _; };
 
@@ -2010,7 +2049,7 @@ function isFunction(val) {
 }
 
 }, {}],
-43: [function(require, module, exports) {
+44: [function(require, module, exports) {
 
 var is = require('is');
 var isodate = require('isodate');
@@ -2050,8 +2089,8 @@ function toMs (num) {
   if (num < 31557600000) return num * 1000;
   return num;
 }
-}, {"is":50,"isodate":45,"./milliseconds":51,"./seconds":52}],
-50: [function(require, module, exports) {
+}, {"is":51,"isodate":46,"./milliseconds":52,"./seconds":53}],
+51: [function(require, module, exports) {
 
 var isEmpty = require('is-empty')
   , typeOf = require('type');
@@ -2122,8 +2161,8 @@ function generate (type) {
     return type === typeOf(value);
   };
 }
-}, {"is-empty":46,"type":47}],
-51: [function(require, module, exports) {
+}, {"is-empty":47,"type":48}],
+52: [function(require, module, exports) {
 
 /**
  * Matcher.
@@ -2156,7 +2195,7 @@ exports.parse = function (millis) {
   return new Date(millis);
 };
 }, {}],
-52: [function(require, module, exports) {
+53: [function(require, module, exports) {
 
 /**
  * Matcher.
@@ -2189,7 +2228,7 @@ exports.parse = function (seconds) {
   return new Date(millis);
 };
 }, {}],
-32: [function(require, module, exports) {
+33: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -2260,8 +2299,8 @@ Alias.prototype.userId = function(){
     || this.field('to');
 };
 
-}, {"./utils":40,"./facade":31}],
-33: [function(require, module, exports) {
+}, {"./utils":41,"./facade":32}],
+34: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -2390,8 +2429,8 @@ Group.prototype.properties = function(){
     || {};
 };
 
-}, {"./utils":40,"./address":41,"is-email":53,"new-date":43,"./facade":31}],
-53: [function(require, module, exports) {
+}, {"./utils":41,"./address":42,"is-email":54,"new-date":44,"./facade":32}],
+54: [function(require, module, exports) {
 
 /**
  * Expose `isEmail`.
@@ -2418,7 +2457,7 @@ function isEmail (string) {
   return matcher.test(string);
 }
 }, {}],
-34: [function(require, module, exports) {
+35: [function(require, module, exports) {
 
 var address = require('./address');
 var Facade = require('./facade');
@@ -2668,8 +2707,8 @@ Identify.prototype.address = Facade.proxy('traits.address');
 Identify.prototype.gender = Facade.proxy('traits.gender');
 Identify.prototype.birthday = Facade.proxy('traits.birthday');
 
-}, {"./address":41,"./facade":31,"is-email":53,"new-date":43,"./utils":40,"obj-case":42,"trim":54}],
-54: [function(require, module, exports) {
+}, {"./address":42,"./facade":32,"is-email":54,"new-date":44,"./utils":41,"obj-case":43,"trim":55}],
+55: [function(require, module, exports) {
 
 exports = module.exports = trim;
 
@@ -2689,7 +2728,7 @@ exports.right = function(str){
 };
 
 }, {}],
-35: [function(require, module, exports) {
+36: [function(require, module, exports) {
 
 var inherit = require('./utils').inherit;
 var clone = require('./utils').clone;
@@ -2979,8 +3018,8 @@ function currency(val) {
   if (!isNaN(val)) return val;
 }
 
-}, {"./utils":40,"./facade":31,"./identify":34,"is-email":53,"obj-case":42}],
-36: [function(require, module, exports) {
+}, {"./utils":41,"./facade":32,"./identify":35,"is-email":54,"obj-case":43}],
+37: [function(require, module, exports) {
 
 var inherit = require('./utils').inherit;
 var Facade = require('./facade');
@@ -3050,15 +3089,28 @@ Page.prototype.referrer = function(){
 /**
  * Get the page properties mixing `category` and `name`.
  *
+ * @param {Object} aliases
  * @return {Object}
  */
 
-Page.prototype.properties = function(){
+Page.prototype.properties = function(aliases) {
   var props = this.field('properties') || {};
   var category = this.category();
   var name = this.name();
+  aliases = aliases || {};
+
   if (category) props.category = category;
   if (name) props.name = name;
+
+  for (var alias in aliases) {
+    var value = null == this[alias]
+      ? this.proxy('properties.' + alias)
+      : this[alias]();
+    if (null == value) continue;
+    props[aliases[alias]] = value;
+    if (alias !== aliases[alias]) delete props[alias];
+  }
+
   return props;
 };
 
@@ -3105,8 +3157,8 @@ Page.prototype.track = function(name){
   });
 };
 
-}, {"./utils":40,"./facade":31,"./track":35}],
-37: [function(require, module, exports) {
+}, {"./utils":41,"./facade":32,"./track":36}],
+38: [function(require, module, exports) {
 
 var inherit = require('./utils').inherit;
 var Page = require('./page');
@@ -3182,7 +3234,7 @@ Screen.prototype.track = function(name){
   });
 };
 
-}, {"./utils":40,"./page":36,"./track":35}],
+}, {"./utils":41,"./page":37,"./track":36}],
 10: [function(require, module, exports) {
 
 module.exports = function after (times, func) {
@@ -3243,8 +3295,8 @@ function bindMethods (obj, methods) {
   }
   return obj;
 }
-}, {"bind":55,"bind-all":56}],
-55: [function(require, module, exports) {
+}, {"bind":56,"bind-all":57}],
+56: [function(require, module, exports) {
 /**
  * Slice reference.
  */
@@ -3270,7 +3322,7 @@ module.exports = function(obj, fn){
 };
 
 }, {}],
-56: [function(require, module, exports) {
+57: [function(require, module, exports) {
 
 try {
   var bind = require('bind');
@@ -3287,7 +3339,7 @@ module.exports = function (obj) {
   }
   return obj;
 };
-}, {"bind":55,"type":47}],
+}, {"bind":56,"type":48}],
 12: [function(require, module, exports) {
 var next = require('next-tick');
 
@@ -3331,8 +3383,8 @@ callback.async = function (fn, wait) {
 
 callback.sync = callback;
 
-}, {"next-tick":57}],
-57: [function(require, module, exports) {
+}, {"next-tick":58}],
+58: [function(require, module, exports) {
 "use strict"
 
 if (typeof setImmediate == 'function') {
@@ -3429,7 +3481,7 @@ function clone(obj){
   }
 }
 
-}, {"type":47}],
+}, {"type":48}],
 14: [function(require, module, exports) {
 
 /**
@@ -3564,8 +3616,8 @@ module.exports = bind.all(new Cookie());
 
 module.exports.Cookie = Cookie;
 
-}, {"bind":11,"clone":13,"cookie":58,"debug":15,"defaults":16,"json":59,"top-domain":60}],
-58: [function(require, module, exports) {
+}, {"bind":11,"clone":13,"cookie":59,"debug":15,"defaults":16,"json":60,"top-domain":61}],
+59: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -3697,8 +3749,8 @@ if ('undefined' == typeof window) {
   module.exports = require('./debug');
 }
 
-}, {"./lib/debug":61,"./debug":62}],
-61: [function(require, module, exports) {
+}, {"./lib/debug":62,"./debug":63}],
+62: [function(require, module, exports) {
 /**
  * Module dependencies.
  */
@@ -3848,7 +3900,7 @@ function coerce(val) {
 }
 
 }, {}],
-62: [function(require, module, exports) {
+63: [function(require, module, exports) {
 
 /**
  * Expose `debug()` as the module.
@@ -4017,7 +4069,7 @@ var defaults = function (dest, src, recursive) {
 module.exports = defaults;
 
 }, {}],
-59: [function(require, module, exports) {
+60: [function(require, module, exports) {
 
 var json = window.JSON || {};
 var stringify = json.stringify;
@@ -4027,8 +4079,8 @@ module.exports = parse && stringify
   ? JSON
   : require('json-fallback');
 
-}, {"json-fallback":63}],
-63: [function(require, module, exports) {
+}, {"json-fallback":64}],
+64: [function(require, module, exports) {
 /*
     json2.js
     2014-02-04
@@ -4518,7 +4570,7 @@ module.exports = parse && stringify
 }());
 
 }, {}],
-60: [function(require, module, exports) {
+61: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -4622,8 +4674,8 @@ domain.levels = function(url){
   return levels;
 };
 
-}, {"url":64,"cookie":65}],
-64: [function(require, module, exports) {
+}, {"url":65,"cookie":66}],
+65: [function(require, module, exports) {
 
 /**
  * Parse the given `url`.
@@ -4708,7 +4760,7 @@ function port (protocol){
 }
 
 }, {}],
-65: [function(require, module, exports) {
+66: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -4843,6 +4895,388 @@ function decode(value) {
 
 }, {"debug":15}],
 17: [function(require, module, exports) {
+'use strict';
+
+/**
+ * Module dependencies.
+ */
+
+// XXX: Hacky fix for Duo not supporting scoped modules
+var each; try { each = require('@ndhoule/each'); } catch(e) { each = require('each'); }
+
+/**
+ * Reduces all the values in a collection down into a single value. Does so by iterating through the
+ * collection from left to right, repeatedly calling an `iterator` function and passing to it four
+ * arguments: `(accumulator, value, index, collection)`.
+ *
+ * Returns the final return value of the `iterator` function.
+ *
+ * @name foldl
+ * @api public
+ * @param {Function} iterator The function to invoke per iteration.
+ * @param {*} accumulator The initial accumulator value, passed to the first invocation of `iterator`.
+ * @param {Array|Object} collection The collection to iterate over.
+ * @return {*} The return value of the final call to `iterator`.
+ * @example
+ * foldl(function(total, n) {
+ *   return total + n;
+ * }, 0, [1, 2, 3]);
+ * //=> 6
+ *
+ * var phonebook = { bob: '555-111-2345', tim: '655-222-6789', sheila: '655-333-1298' };
+ *
+ * foldl(function(results, phoneNumber) {
+ *  if (phoneNumber[0] === '6') {
+ *    return results.concat(phoneNumber);
+ *  }
+ *  return results;
+ * }, [], phonebook);
+ * // => ['655-222-6789', '655-333-1298']
+ */
+
+var foldl = function foldl(iterator, accumulator, collection) {
+  if (typeof iterator !== 'function') {
+    throw new TypeError('Expected a function but received a ' + typeof iterator);
+  }
+
+  each(function(val, i, collection) {
+    accumulator = iterator(accumulator, val, i, collection);
+  }, collection);
+
+  return accumulator;
+};
+
+/**
+ * Exports.
+ */
+
+module.exports = foldl;
+
+}, {"each":67}],
+67: [function(require, module, exports) {
+'use strict';
+
+/**
+ * Module dependencies.
+ */
+
+// XXX: Hacky fix for Duo not supporting scoped modules
+var keys; try { keys = require('@ndhoule/keys'); } catch(e) { keys = require('keys'); }
+
+/**
+ * Object.prototype.toString reference.
+ */
+
+var objToString = Object.prototype.toString;
+
+/**
+ * Tests if a value is a number.
+ *
+ * @name isNumber
+ * @api private
+ * @param {*} val The value to test.
+ * @return {boolean} Returns `true` if `val` is a number, otherwise `false`.
+ */
+
+// TODO: Move to library
+var isNumber = function isNumber(val) {
+  var type = typeof val;
+  return type === 'number' || (type === 'object' && objToString.call(val) === '[object Number]');
+};
+
+/**
+ * Tests if a value is an array.
+ *
+ * @name isArray
+ * @api private
+ * @param {*} val The value to test.
+ * @return {boolean} Returns `true` if the value is an array, otherwise `false`.
+ */
+
+// TODO: Move to library
+var isArray = typeof Array.isArray === 'function' ? Array.isArray : function isArray(val) {
+  return objToString.call(val) === '[object Array]';
+};
+
+/**
+ * Tests if a value is array-like. Array-like means the value is not a function and has a numeric
+ * `.length` property.
+ *
+ * @name isArrayLike
+ * @api private
+ * @param {*} val
+ * @return {boolean}
+ */
+
+// TODO: Move to library
+var isArrayLike = function isArrayLike(val) {
+  return val != null && (isArray(val) || (val !== 'function' && isNumber(val.length)));
+};
+
+/**
+ * Internal implementation of `each`. Works on arrays and array-like data structures.
+ *
+ * @name arrayEach
+ * @api private
+ * @param {Function(value, key, collection)} iterator The function to invoke per iteration.
+ * @param {Array} array The array(-like) structure to iterate over.
+ * @return {undefined}
+ */
+
+var arrayEach = function arrayEach(iterator, array) {
+  for (var i = 0; i < array.length; i += 1) {
+    // Break iteration early if `iterator` returns `false`
+    if (iterator(array[i], i, array) === false) {
+      break;
+    }
+  }
+};
+
+/**
+ * Internal implementation of `each`. Works on objects.
+ *
+ * @name baseEach
+ * @api private
+ * @param {Function(value, key, collection)} iterator The function to invoke per iteration.
+ * @param {Object} object The object to iterate over.
+ * @return {undefined}
+ */
+
+var baseEach = function baseEach(iterator, object) {
+  var ks = keys(object);
+
+  for (var i = 0; i < ks.length; i += 1) {
+    // Break iteration early if `iterator` returns `false`
+    if (iterator(object[ks[i]], ks[i], object) === false) {
+      break;
+    }
+  }
+};
+
+/**
+ * Iterate over an input collection, invoking an `iterator` function for each element in the
+ * collection and passing to it three arguments: `(value, index, collection)`. The `iterator`
+ * function can end iteration early by returning `false`.
+ *
+ * @name each
+ * @api public
+ * @param {Function(value, key, collection)} iterator The function to invoke per iteration.
+ * @param {Array|Object|string} collection The collection to iterate over.
+ * @return {undefined} Because `each` is run only for side effects, always returns `undefined`.
+ * @example
+ * var log = console.log.bind(console);
+ *
+ * each(log, ['a', 'b', 'c']);
+ * //-> 'a', 0, ['a', 'b', 'c']
+ * //-> 'b', 1, ['a', 'b', 'c']
+ * //-> 'c', 2, ['a', 'b', 'c']
+ * //=> undefined
+ *
+ * each(log, 'tim');
+ * //-> 't', 2, 'tim'
+ * //-> 'i', 1, 'tim'
+ * //-> 'm', 0, 'tim'
+ * //=> undefined
+ *
+ * // Note: Iteration order not guaranteed across environments
+ * each(log, { name: 'tim', occupation: 'enchanter' });
+ * //-> 'tim', 'name', { name: 'tim', occupation: 'enchanter' }
+ * //-> 'enchanter', 'occupation', { name: 'tim', occupation: 'enchanter' }
+ * //=> undefined
+ */
+
+var each = function each(iterator, collection) {
+  return (isArrayLike(collection) ? arrayEach : baseEach).call(this, iterator, collection);
+};
+
+/**
+ * Exports.
+ */
+
+module.exports = each;
+
+}, {"keys":68}],
+68: [function(require, module, exports) {
+'use strict';
+
+/**
+ * charAt reference.
+ */
+
+var strCharAt = String.prototype.charAt;
+
+/**
+ * Returns the character at a given index.
+ *
+ * @param {string} str
+ * @param {number} index
+ * @return {string|undefined}
+ */
+
+// TODO: Move to a library
+var charAt = function(str, index) {
+  return strCharAt.call(str, index);
+};
+
+/**
+ * hasOwnProperty reference.
+ */
+
+var hop = Object.prototype.hasOwnProperty;
+
+/**
+ * Object.prototype.toString reference.
+ */
+
+var toStr = Object.prototype.toString;
+
+/**
+ * hasOwnProperty, wrapped as a function.
+ *
+ * @name has
+ * @api private
+ * @param {*} context
+ * @param {string|number} prop
+ * @return {boolean}
+ */
+
+// TODO: Move to a library
+var has = function has(context, prop) {
+  return hop.call(context, prop);
+};
+
+/**
+ * Returns true if a value is a string, otherwise false.
+ *
+ * @name isString
+ * @api private
+ * @param {*} val
+ * @return {boolean}
+ */
+
+// TODO: Move to a library
+var isString = function isString(val) {
+  return toStr.call(val) === '[object String]';
+};
+
+/**
+ * Returns true if a value is array-like, otherwise false. Array-like means a
+ * value is not null, undefined, or a function, and has a numeric `length`
+ * property.
+ *
+ * @name isArrayLike
+ * @api private
+ * @param {*} val
+ * @return {boolean}
+ */
+
+// TODO: Move to a library
+var isArrayLike = function isArrayLike(val) {
+  return val != null && (typeof val !== 'function' && typeof val.length === 'number');
+};
+
+
+/**
+ * indexKeys
+ *
+ * @name indexKeys
+ * @api private
+ * @param {} target
+ * @param {} pred
+ * @return {Array}
+ */
+
+var indexKeys = function indexKeys(target, pred) {
+  pred = pred || has;
+  var results = [];
+
+  for (var i = 0, len = target.length; i < len; i += 1) {
+    if (pred(target, i)) {
+      results.push(String(i));
+    }
+  }
+
+  return results;
+};
+
+/**
+ * Returns an array of all the owned
+ *
+ * @name objectKeys
+ * @api private
+ * @param {*} target
+ * @param {Function} pred Predicate function used to include/exclude values from
+ * the resulting array.
+ * @return {Array}
+ */
+
+var objectKeys = function objectKeys(target, pred) {
+  pred = pred || has;
+  var results = [];
+
+
+  for (var key in target) {
+    if (pred(target, key)) {
+      results.push(String(key));
+    }
+  }
+
+  return results;
+};
+
+/**
+ * Creates an array composed of all keys on the input object. Ignores any non-enumerable properties.
+ * More permissive than the native `Object.keys` function (non-objects will not throw errors).
+ *
+ * @name keys
+ * @api public
+ * @category Object
+ * @param {Object} source The value to retrieve keys from.
+ * @return {Array} An array containing all the input `source`'s keys.
+ * @example
+ * keys({ likes: 'avocado', hates: 'pineapple' });
+ * //=> ['likes', 'pineapple'];
+ *
+ * // Ignores non-enumerable properties
+ * var hasHiddenKey = { name: 'Tim' };
+ * Object.defineProperty(hasHiddenKey, 'hidden', {
+ *   value: 'i am not enumerable!',
+ *   enumerable: false
+ * })
+ * keys(hasHiddenKey);
+ * //=> ['name'];
+ *
+ * // Works on arrays
+ * keys(['a', 'b', 'c']);
+ * //=> ['0', '1', '2']
+ *
+ * // Skips unpopulated indices in sparse arrays
+ * var arr = [1];
+ * arr[4] = 4;
+ * keys(arr);
+ * //=> ['0', '4']
+ */
+
+module.exports = function keys(source) {
+  if (source == null) {
+    return [];
+  }
+
+  // IE6-8 compatibility (string)
+  if (isString(source)) {
+    return indexKeys(source, charAt);
+  }
+
+  // IE6-8 compatibility (arguments)
+  if (isArrayLike(source)) {
+    return indexKeys(source, has);
+  }
+
+  return objectKeys(source);
+};
+
+}, {}],
+18: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -4901,8 +5335,8 @@ module.exports = bind.all(new Group());
 
 module.exports.Group = Group;
 
-}, {"./entity":66,"bind":11,"debug":15,"inherit":67}],
-66: [function(require, module, exports) {
+}, {"./entity":69,"bind":11,"debug":15,"inherit":70}],
+69: [function(require, module, exports) {
 
 var clone = require('clone');
 var cookie = require('./cookie');
@@ -5141,8 +5575,8 @@ Entity.prototype.load = function() {
 };
 
 
-}, {"clone":13,"./cookie":14,"debug":15,"defaults":16,"extend":68,"./memory":21,"./store":28,"isodate-traverse":38}],
-68: [function(require, module, exports) {
+}, {"clone":13,"./cookie":14,"debug":15,"defaults":16,"extend":71,"./memory":22,"./store":29,"isodate-traverse":39}],
+71: [function(require, module, exports) {
 
 module.exports = function extend (object) {
     // Takes an unlimited number of extenders.
@@ -5159,7 +5593,7 @@ module.exports = function extend (object) {
     return object;
 };
 }, {}],
-21: [function(require, module, exports) {
+22: [function(require, module, exports) {
 /* eslint consistent-return:1 */
 
 /**
@@ -5226,7 +5660,7 @@ Memory.prototype.remove = function(key){
 };
 
 }, {"bind":11,"clone":13}],
-28: [function(require, module, exports) {
+29: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -5315,8 +5749,8 @@ module.exports = bind.all(new Store());
 
 module.exports.Store = Store;
 
-}, {"bind":11,"defaults":16,"store.js":69}],
-69: [function(require, module, exports) {
+}, {"bind":11,"defaults":16,"store.js":72}],
+72: [function(require, module, exports) {
 var json             = require('json')
   , store            = {}
   , win              = window
@@ -5468,8 +5902,8 @@ try {
 store.enabled = !store.disabled
 
 module.exports = store;
-}, {"json":59}],
-67: [function(require, module, exports) {
+}, {"json":60}],
+70: [function(require, module, exports) {
 
 module.exports = function(a, b){
   var fn = function(){};
@@ -5478,7 +5912,7 @@ module.exports = function(a, b){
   a.prototype.constructor = a;
 };
 }, {}],
-18: [function(require, module, exports) {
+19: [function(require, module, exports) {
 
 var isEmpty = require('is-empty');
 
@@ -5554,8 +5988,8 @@ function generate (type) {
     return type === typeOf(value);
   };
 }
-}, {"is-empty":46,"type":47,"component-type":47}],
-19: [function(require, module, exports) {
+}, {"is-empty":47,"type":48,"component-type":48}],
+20: [function(require, module, exports) {
 module.exports = function isMeta (e) {
     if (e.metaKey || e.altKey || e.ctrlKey || e.shiftKey) return true;
 
@@ -5571,7 +6005,7 @@ module.exports = function isMeta (e) {
     return false;
 };
 }, {}],
-20: [function(require, module, exports) {
+21: [function(require, module, exports) {
 
 /**
  * HOP ref.
@@ -5657,7 +6091,7 @@ exports.isEmpty = function(obj){
   return 0 == exports.length(obj);
 };
 }, {}],
-22: [function(require, module, exports) {
+23: [function(require, module, exports) {
 
 /**
  * Module Dependencies.
@@ -5749,8 +6183,8 @@ function normalize(msg, list){
   }
 }
 
-}, {"debug":15,"defaults":16,"each":4,"includes":70,"is":18,"component/map":71}],
-70: [function(require, module, exports) {
+}, {"debug":15,"defaults":16,"each":4,"includes":73,"is":19,"component/map":74}],
+73: [function(require, module, exports) {
 'use strict';
 
 /**
@@ -5840,331 +6274,8 @@ var includes = function includes(searchElement, collection) {
 
 module.exports = includes;
 
-}, {"each":72}],
-72: [function(require, module, exports) {
-'use strict';
-
-/**
- * Module dependencies.
- */
-
-// XXX: Hacky fix for Duo not supporting scoped modules
-var keys; try { keys = require('@ndhoule/keys'); } catch(e) { keys = require('keys'); }
-
-/**
- * Object.prototype.toString reference.
- */
-
-var objToString = Object.prototype.toString;
-
-/**
- * Tests if a value is a number.
- *
- * @name isNumber
- * @api private
- * @param {*} val The value to test.
- * @return {boolean} Returns `true` if `val` is a number, otherwise `false`.
- */
-
-// TODO: Move to library
-var isNumber = function isNumber(val) {
-  var type = typeof val;
-  return type === 'number' || (type === 'object' && objToString.call(val) === '[object Number]');
-};
-
-/**
- * Tests if a value is an array.
- *
- * @name isArray
- * @api private
- * @param {*} val The value to test.
- * @return {boolean} Returns `true` if the value is an array, otherwise `false`.
- */
-
-// TODO: Move to library
-var isArray = typeof Array.isArray === 'function' ? Array.isArray : function isArray(val) {
-  return objToString.call(val) === '[object Array]';
-};
-
-/**
- * Tests if a value is array-like. Array-like means the value is not a function and has a numeric
- * `.length` property.
- *
- * @name isArrayLike
- * @api private
- * @param {*} val
- * @return {boolean}
- */
-
-// TODO: Move to library
-var isArrayLike = function isArrayLike(val) {
-  return val != null && (isArray(val) || (val !== 'function' && isNumber(val.length)));
-};
-
-/**
- * Internal implementation of `each`. Works on arrays and array-like data structures.
- *
- * @name arrayEach
- * @api private
- * @param {Function(value, key, collection)} iterator The function to invoke per iteration.
- * @param {Array} array The array(-like) structure to iterate over.
- * @return {undefined}
- */
-
-var arrayEach = function arrayEach(iterator, array) {
-  for (var i = 0; i < array.length; i += 1) {
-    // Break iteration early if `iterator` returns `false`
-    if (iterator(array[i], i, array) === false) {
-      break;
-    }
-  }
-};
-
-/**
- * Internal implementation of `each`. Works on objects.
- *
- * @name baseEach
- * @api private
- * @param {Function(value, key, collection)} iterator The function to invoke per iteration.
- * @param {Object} object The object to iterate over.
- * @return {undefined}
- */
-
-var baseEach = function baseEach(iterator, object) {
-  var ks = keys(object);
-
-  for (var i = 0; i < ks.length; i += 1) {
-    // Break iteration early if `iterator` returns `false`
-    if (iterator(object[ks[i]], ks[i], object) === false) {
-      break;
-    }
-  }
-};
-
-/**
- * Iterate over an input collection, invoking an `iterator` function for each element in the
- * collection and passing to it three arguments: `(value, index, collection)`. The `iterator`
- * function can end iteration early by returning `false`.
- *
- * @name each
- * @api public
- * @param {Function(value, key, collection)} iterator The function to invoke per iteration.
- * @param {Array|Object|string} collection The collection to iterate over.
- * @return {undefined} Because `each` is run only for side effects, always returns `undefined`.
- * @example
- * var log = console.log.bind(console);
- *
- * each(log, ['a', 'b', 'c']);
- * //-> 'a', 0, ['a', 'b', 'c']
- * //-> 'b', 1, ['a', 'b', 'c']
- * //-> 'c', 2, ['a', 'b', 'c']
- * //=> undefined
- *
- * each(log, 'tim');
- * //-> 't', 2, 'tim'
- * //-> 'i', 1, 'tim'
- * //-> 'm', 0, 'tim'
- * //=> undefined
- *
- * // Note: Iteration order not guaranteed across environments
- * each(log, { name: 'tim', occupation: 'enchanter' });
- * //-> 'tim', 'name', { name: 'tim', occupation: 'enchanter' }
- * //-> 'enchanter', 'occupation', { name: 'tim', occupation: 'enchanter' }
- * //=> undefined
- */
-
-var each = function each(iterator, collection) {
-  return (isArrayLike(collection) ? arrayEach : baseEach).call(this, iterator, collection);
-};
-
-/**
- * Exports.
- */
-
-module.exports = each;
-
-}, {"keys":73}],
-73: [function(require, module, exports) {
-'use strict';
-
-/**
- * charAt reference.
- */
-
-var strCharAt = String.prototype.charAt;
-
-/**
- * Returns the character at a given index.
- *
- * @param {string} str
- * @param {number} index
- * @return {string|undefined}
- */
-
-// TODO: Move to a library
-var charAt = function(str, index) {
-  return strCharAt.call(str, index);
-};
-
-/**
- * hasOwnProperty reference.
- */
-
-var hop = Object.prototype.hasOwnProperty;
-
-/**
- * Object.prototype.toString reference.
- */
-
-var toStr = Object.prototype.toString;
-
-/**
- * hasOwnProperty, wrapped as a function.
- *
- * @name has
- * @api private
- * @param {*} context
- * @param {string|number} prop
- * @return {boolean}
- */
-
-// TODO: Move to a library
-var has = function has(context, prop) {
-  return hop.call(context, prop);
-};
-
-/**
- * Returns true if a value is a string, otherwise false.
- *
- * @name isString
- * @api private
- * @param {*} val
- * @return {boolean}
- */
-
-// TODO: Move to a library
-var isString = function isString(val) {
-  return toStr.call(val) === '[object String]';
-};
-
-/**
- * Returns true if a value is array-like, otherwise false. Array-like means a
- * value is not null, undefined, or a function, and has a numeric `length`
- * property.
- *
- * @name isArrayLike
- * @api private
- * @param {*} val
- * @return {boolean}
- */
-
-// TODO: Move to a library
-var isArrayLike = function isArrayLike(val) {
-  return val != null && (typeof val !== 'function' && typeof val.length === 'number');
-};
-
-
-/**
- * indexKeys
- *
- * @name indexKeys
- * @api private
- * @param {} target
- * @param {} pred
- * @return {Array}
- */
-
-var indexKeys = function indexKeys(target, pred) {
-  pred = pred || has;
-  var results = [];
-
-  for (var i = 0, len = target.length; i < len; i += 1) {
-    if (pred(target, i)) {
-      results.push(String(i));
-    }
-  }
-
-  return results;
-};
-
-/**
- * Returns an array of all the owned
- *
- * @name objectKeys
- * @api private
- * @param {*} target
- * @param {Function} pred Predicate function used to include/exclude values from
- * the resulting array.
- * @return {Array}
- */
-
-var objectKeys = function objectKeys(target, pred) {
-  pred = pred || has;
-  var results = [];
-
-
-  for (var key in target) {
-    if (pred(target, key)) {
-      results.push(String(key));
-    }
-  }
-
-  return results;
-};
-
-/**
- * Creates an array composed of all keys on the input object. Ignores any non-enumerable properties.
- * More permissive than the native `Object.keys` function (non-objects will not throw errors).
- *
- * @name keys
- * @api public
- * @category Object
- * @param {Object} source The value to retrieve keys from.
- * @return {Array} An array containing all the input `source`'s keys.
- * @example
- * keys({ likes: 'avocado', hates: 'pineapple' });
- * //=> ['likes', 'pineapple'];
- *
- * // Ignores non-enumerable properties
- * var hasHiddenKey = { name: 'Tim' };
- * Object.defineProperty(hasHiddenKey, 'hidden', {
- *   value: 'i am not enumerable!',
- *   enumerable: false
- * })
- * keys(hasHiddenKey);
- * //=> ['name'];
- *
- * // Works on arrays
- * keys(['a', 'b', 'c']);
- * //=> ['0', '1', '2']
- *
- * // Skips unpopulated indices in sparse arrays
- * var arr = [1];
- * arr[4] = 4;
- * keys(arr);
- * //=> ['0', '4']
- */
-
-module.exports = function keys(source) {
-  if (source == null) {
-    return [];
-  }
-
-  // IE6-8 compatibility (string)
-  if (isString(source)) {
-    return indexKeys(source, charAt);
-  }
-
-  // IE6-8 compatibility (arguments)
-  if (isArrayLike(source)) {
-    return indexKeys(source, has);
-  }
-
-  return objectKeys(source);
-};
-
-}, {}],
-71: [function(require, module, exports) {
+}, {"each":67}],
+74: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -6189,8 +6300,8 @@ module.exports = function(arr, fn){
   }
   return ret;
 };
-}, {"to-function":74}],
-74: [function(require, module, exports) {
+}, {"to-function":75}],
+75: [function(require, module, exports) {
 
 /**
  * Module Dependencies
@@ -6344,8 +6455,8 @@ function stripNested (prop, str, val) {
   });
 }
 
-}, {"props":75,"component-props":75}],
-75: [function(require, module, exports) {
+}, {"props":76,"component-props":76}],
+76: [function(require, module, exports) {
 /**
  * Global Names
  */
@@ -6433,7 +6544,7 @@ function prefixed(str) {
 }
 
 }, {}],
-23: [function(require, module, exports) {
+24: [function(require, module, exports) {
 
 /**
  * Bind `el` event `type` to `fn`.
@@ -6476,7 +6587,7 @@ exports.unbind = function(el, type, fn, capture){
 };
 
 }, {}],
-24: [function(require, module, exports) {
+25: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -6539,8 +6650,8 @@ function canonicalUrl(search) {
 
 module.exports = pageDefaults;
 
-}, {"canonical":76,"includes":70,"url":77}],
-76: [function(require, module, exports) {
+}, {"canonical":77,"includes":73,"url":78}],
+77: [function(require, module, exports) {
 module.exports = function canonical () {
   var tags = document.getElementsByTagName('link');
   for (var i = 0, tag; tag = tags[i]; i++) {
@@ -6548,7 +6659,7 @@ module.exports = function canonical () {
   }
 };
 }, {}],
-77: [function(require, module, exports) {
+78: [function(require, module, exports) {
 
 /**
  * Parse the given `url`.
@@ -6633,7 +6744,7 @@ function port (protocol){
 }
 
 }, {}],
-25: [function(require, module, exports) {
+26: [function(require, module, exports) {
 'use strict';
 
 var objToString = Object.prototype.toString;
@@ -6709,7 +6820,7 @@ var pick = function pick(props, object) {
 module.exports = pick;
 
 }, {}],
-26: [function(require, module, exports) {
+27: [function(require, module, exports) {
 
 /**
  * prevent default on the given `e`.
@@ -6732,7 +6843,7 @@ module.exports = function(e){
 };
 
 }, {}],
-27: [function(require, module, exports) {
+28: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -6839,8 +6950,45 @@ exports.stringify = function(obj){
   return pairs.join('&');
 };
 
-}, {"trim":54,"type":47}],
-29: [function(require, module, exports) {
+}, {"trim":55,"type":79}],
+79: [function(require, module, exports) {
+/**
+ * toString ref.
+ */
+
+var toString = Object.prototype.toString;
+
+/**
+ * Return the type of `val`.
+ *
+ * @param {Mixed} val
+ * @return {String}
+ * @api public
+ */
+
+module.exports = function(val){
+  switch (toString.call(val)) {
+    case '[object Date]': return 'date';
+    case '[object RegExp]': return 'regexp';
+    case '[object Arguments]': return 'arguments';
+    case '[object Array]': return 'array';
+    case '[object Error]': return 'error';
+  }
+
+  if (val === null) return 'null';
+  if (val === undefined) return 'undefined';
+  if (val !== val) return 'nan';
+  if (val && val.nodeType === 1) return 'element';
+
+  val = val.valueOf
+    ? val.valueOf()
+    : Object.prototype.valueOf.apply(val)
+
+  return typeof val;
+};
+
+}, {}],
+30: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -7018,8 +7166,8 @@ module.exports = bind.all(new User());
 
 module.exports.User = User;
 
-}, {"./entity":66,"bind":11,"./cookie":14,"debug":15,"inherit":67,"cookie":58,"uuid":78}],
-78: [function(require, module, exports) {
+}, {"./entity":69,"bind":11,"./cookie":14,"debug":15,"inherit":70,"cookie":59,"uuid":80}],
+80: [function(require, module, exports) {
 
 /**
  * Taken straight from jed's gist: https://gist.github.com/982883
@@ -7052,7 +7200,7 @@ module.exports = function uuid(a){
 7: [function(require, module, exports) {
 module.exports = {
   "name": "analytics-core",
-  "version": "2.10.0",
+  "version": "2.11.1",
   "main": "analytics.js",
   "dependencies": {},
   "devDependencies": {}
@@ -7079,7 +7227,6 @@ module.exports = {
   'bugsnag': require('analytics.js-integration-bugsnag'),
   'chameleon': require('analytics.js-integration-chameleon'),
   'chartbeat': require('analytics.js-integration-chartbeat'),
-  'clicktale': require('analytics.js-integration-clicktale'),
   'clicky': require('analytics.js-integration-clicky'),
   'comscore': require('analytics.js-integration-comscore'),
   'crazy-egg': require('analytics.js-integration-crazy-egg'),
@@ -7092,6 +7239,7 @@ module.exports = {
   'extole': require('analytics.js-integration-extole'),
   'facebook-conversion-tracking': require('analytics.js-integration-facebook-conversion-tracking'),
   'facebook-custom-audiences': require('analytics.js-integration-facebook-custom-audiences'),
+  'facebook-pixel': require('analytics.js-integration-facebook-pixel'),
   'foxmetrics': require('analytics.js-integration-foxmetrics'),
   'frontleaf': require('analytics.js-integration-frontleaf'),
   'fullstory': require('analytics.js-integration-fullstory'),
@@ -7153,8 +7301,8 @@ module.exports = {
   'yandex-metrica': require('analytics.js-integration-yandex-metrica')
 };
 
-}, {"analytics.js-integration-adroll":79,"analytics.js-integration-adwords":80,"analytics.js-integration-alexa":81,"analytics.js-integration-amplitude":82,"analytics.js-integration-appcues":83,"analytics.js-integration-atatus":84,"analytics.js-integration-autosend":85,"analytics.js-integration-awesm":86,"analytics.js-integration-bing-ads":87,"analytics.js-integration-blueshift":88,"analytics.js-integration-bronto":89,"analytics.js-integration-bugherd":90,"analytics.js-integration-bugsnag":91,"analytics.js-integration-chameleon":92,"analytics.js-integration-chartbeat":93,"analytics.js-integration-clicktale":94,"analytics.js-integration-clicky":95,"analytics.js-integration-comscore":96,"analytics.js-integration-crazy-egg":97,"analytics.js-integration-curebit":98,"analytics.js-integration-customerio":99,"analytics.js-integration-drip":100,"analytics.js-integration-elevio":101,"analytics.js-integration-errorception":102,"analytics.js-integration-evergage":103,"analytics.js-integration-extole":104,"analytics.js-integration-facebook-conversion-tracking":105,"analytics.js-integration-facebook-custom-audiences":106,"analytics.js-integration-foxmetrics":107,"analytics.js-integration-frontleaf":108,"analytics.js-integration-fullstory":109,"analytics.js-integration-gauges":110,"analytics.js-integration-get-satisfaction":111,"analytics.js-integration-google-analytics":112,"analytics.js-integration-google-tag-manager":113,"analytics.js-integration-gosquared":114,"analytics.js-integration-heap":115,"analytics.js-integration-hellobar":116,"analytics.js-integration-hittail":117,"analytics.js-integration-hubspot":118,"analytics.js-integration-improvely":119,"analytics.js-integration-insidevault":120,"analytics.js-integration-inspectlet":121,"analytics.js-integration-intercom":122,"analytics.js-integration-keen-io":123,"analytics.js-integration-kenshoo":124,"analytics.js-integration-kissmetrics":125,"analytics.js-integration-klaviyo":126,"analytics.js-integration-livechat":127,"analytics.js-integration-lucky-orange":128,"analytics.js-integration-lytics":129,"analytics.js-integration-mixpanel":130,"analytics.js-integration-mojn":131,"analytics.js-integration-mouseflow":132,"analytics.js-integration-mousestats":133,"analytics.js-integration-navilytics":134,"analytics.js-integration-nudgespot":135,"analytics.js-integration-olark":136,"analytics.js-integration-optimizely":137,"analytics.js-integration-outbound":138,"analytics.js-integration-perfect-audience":139,"analytics.js-integration-pingdom":140,"analytics.js-integration-piwik":141,"analytics.js-integration-preact":142,"analytics.js-integration-qualaroo":143,"analytics.js-integration-quantcast":144,"analytics.js-integration-rollbar":145,"analytics.js-integration-route":146,"analytics.js-integration-saasquatch":147,"analytics.js-integration-satismeter":148,"analytics.js-integration-segmentio":149,"analytics.js-integration-sentry":150,"analytics.js-integration-snapengage":151,"analytics.js-integration-spinnakr":152,"analytics.js-integration-supporthero":153,"analytics.js-integration-taplytics":154,"analytics.js-integration-tapstream":155,"analytics.js-integration-trakio":156,"analytics.js-integration-twitter-ads":157,"analytics.js-integration-userlike":158,"analytics.js-integration-uservoice":159,"analytics.js-integration-vero":160,"analytics.js-integration-visual-website-optimizer":161,"analytics.js-integration-webengage":162,"analytics.js-integration-woopra":163,"analytics.js-integration-wootric":164,"analytics.js-integration-yandex-metrica":165}],
-79: [function(require, module, exports) {
+}, {"analytics.js-integration-adroll":81,"analytics.js-integration-adwords":82,"analytics.js-integration-alexa":83,"analytics.js-integration-amplitude":84,"analytics.js-integration-appcues":85,"analytics.js-integration-atatus":86,"analytics.js-integration-autosend":87,"analytics.js-integration-awesm":88,"analytics.js-integration-bing-ads":89,"analytics.js-integration-blueshift":90,"analytics.js-integration-bronto":91,"analytics.js-integration-bugherd":92,"analytics.js-integration-bugsnag":93,"analytics.js-integration-chameleon":94,"analytics.js-integration-chartbeat":95,"analytics.js-integration-clicky":96,"analytics.js-integration-comscore":97,"analytics.js-integration-crazy-egg":98,"analytics.js-integration-curebit":99,"analytics.js-integration-customerio":100,"analytics.js-integration-drip":101,"analytics.js-integration-elevio":102,"analytics.js-integration-errorception":103,"analytics.js-integration-evergage":104,"analytics.js-integration-extole":105,"analytics.js-integration-facebook-conversion-tracking":106,"analytics.js-integration-facebook-custom-audiences":107,"analytics.js-integration-facebook-pixel":108,"analytics.js-integration-foxmetrics":109,"analytics.js-integration-frontleaf":110,"analytics.js-integration-fullstory":111,"analytics.js-integration-gauges":112,"analytics.js-integration-get-satisfaction":113,"analytics.js-integration-google-analytics":114,"analytics.js-integration-google-tag-manager":115,"analytics.js-integration-gosquared":116,"analytics.js-integration-heap":117,"analytics.js-integration-hellobar":118,"analytics.js-integration-hittail":119,"analytics.js-integration-hubspot":120,"analytics.js-integration-improvely":121,"analytics.js-integration-insidevault":122,"analytics.js-integration-inspectlet":123,"analytics.js-integration-intercom":124,"analytics.js-integration-keen-io":125,"analytics.js-integration-kenshoo":126,"analytics.js-integration-kissmetrics":127,"analytics.js-integration-klaviyo":128,"analytics.js-integration-livechat":129,"analytics.js-integration-lucky-orange":130,"analytics.js-integration-lytics":131,"analytics.js-integration-mixpanel":132,"analytics.js-integration-mojn":133,"analytics.js-integration-mouseflow":134,"analytics.js-integration-mousestats":135,"analytics.js-integration-navilytics":136,"analytics.js-integration-nudgespot":137,"analytics.js-integration-olark":138,"analytics.js-integration-optimizely":139,"analytics.js-integration-outbound":140,"analytics.js-integration-perfect-audience":141,"analytics.js-integration-pingdom":142,"analytics.js-integration-piwik":143,"analytics.js-integration-preact":144,"analytics.js-integration-qualaroo":145,"analytics.js-integration-quantcast":146,"analytics.js-integration-rollbar":147,"analytics.js-integration-route":148,"analytics.js-integration-saasquatch":149,"analytics.js-integration-satismeter":150,"analytics.js-integration-segmentio":151,"analytics.js-integration-sentry":152,"analytics.js-integration-snapengage":153,"analytics.js-integration-spinnakr":154,"analytics.js-integration-supporthero":155,"analytics.js-integration-taplytics":156,"analytics.js-integration-tapstream":157,"analytics.js-integration-trakio":158,"analytics.js-integration-twitter-ads":159,"analytics.js-integration-userlike":160,"analytics.js-integration-uservoice":161,"analytics.js-integration-vero":162,"analytics.js-integration-visual-website-optimizer":163,"analytics.js-integration-webengage":164,"analytics.js-integration-woopra":165,"analytics.js-integration-wootric":166,"analytics.js-integration-yandex-metrica":167}],
+81: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -7270,8 +7418,8 @@ AdRoll.prototype.track = function(track) {
   }
 };
 
-}, {"analytics.js-integration":166,"to-snake-case":167,"use-https":168,"each":4,"is":18,"obj-case":42}],
-166: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"to-snake-case":169,"use-https":170,"each":4,"is":19,"obj-case":43}],
+168: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -7335,8 +7483,8 @@ function createIntegration(name){
 
 module.exports = createIntegration;
 
-}, {"bind":169,"clone":13,"debug":170,"defaults":16,"extend":171,"slug":172,"./protos":173,"./statics":174}],
-169: [function(require, module, exports) {
+}, {"bind":171,"clone":13,"debug":172,"defaults":16,"extend":173,"slug":174,"./protos":175,"./statics":176}],
+171: [function(require, module, exports) {
 
 var bind = require('bind')
   , bindAll = require('bind-all');
@@ -7377,16 +7525,16 @@ function bindMethods (obj, methods) {
   }
   return obj;
 }
-}, {"bind":55,"bind-all":56}],
-170: [function(require, module, exports) {
+}, {"bind":56,"bind-all":57}],
+172: [function(require, module, exports) {
 if ('undefined' == typeof window) {
   module.exports = require('./lib/debug');
 } else {
   module.exports = require('./debug');
 }
 
-}, {"./lib/debug":175,"./debug":176}],
-175: [function(require, module, exports) {
+}, {"./lib/debug":177,"./debug":178}],
+177: [function(require, module, exports) {
 /**
  * Module dependencies.
  */
@@ -7536,7 +7684,7 @@ function coerce(val) {
 }
 
 }, {}],
-176: [function(require, module, exports) {
+178: [function(require, module, exports) {
 
 /**
  * Expose `debug()` as the module.
@@ -7676,7 +7824,7 @@ try {
 } catch(e){}
 
 }, {}],
-171: [function(require, module, exports) {
+173: [function(require, module, exports) {
 
 module.exports = function extend (object) {
     // Takes an unlimited number of extenders.
@@ -7693,7 +7841,7 @@ module.exports = function extend (object) {
     return object;
 };
 }, {}],
-172: [function(require, module, exports) {
+174: [function(require, module, exports) {
 
 /**
  * Generate a slug from the given `str`.
@@ -7719,7 +7867,7 @@ module.exports = function (str, options) {
 };
 
 }, {}],
-173: [function(require, module, exports) {
+175: [function(require, module, exports) {
 /* global setInterval:true setTimeout:true */
 
 /**
@@ -8145,8 +8293,8 @@ function render(template, locals){
   }, {}, template.attrs);
 }
 
-}, {"emitter":8,"after":10,"each":177,"analytics-events":178,"fmt":179,"foldl":180,"load-iframe":181,"load-script":182,"to-no-case":183,"next-tick":57,"type":184}],
-177: [function(require, module, exports) {
+}, {"emitter":8,"after":10,"each":179,"analytics-events":180,"fmt":181,"foldl":17,"load-iframe":182,"load-script":183,"to-no-case":184,"next-tick":58,"type":185}],
+179: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -8237,8 +8385,8 @@ function array(obj, fn, ctx) {
   }
 }
 
-}, {"type":184,"component-type":184,"to-function":74}],
-184: [function(require, module, exports) {
+}, {"type":185,"component-type":185,"to-function":75}],
+185: [function(require, module, exports) {
 
 /**
  * toString ref.
@@ -8273,7 +8421,7 @@ module.exports = function(val){
 };
 
 }, {}],
-178: [function(require, module, exports) {
+180: [function(require, module, exports) {
 
 module.exports = {
   removedProduct: /^[ _]?removed[ _]?product[ _]?$/i,
@@ -8293,7 +8441,7 @@ module.exports = {
 };
 
 }, {}],
-179: [function(require, module, exports) {
+181: [function(require, module, exports) {
 
 /**
  * toString.
@@ -8338,66 +8486,7 @@ function fmt(str){
 }
 
 }, {}],
-180: [function(require, module, exports) {
-'use strict';
-
-/**
- * Module dependencies.
- */
-
-// XXX: Hacky fix for Duo not supporting scoped modules
-var each; try { each = require('@ndhoule/each'); } catch(e) { each = require('each'); }
-
-/**
- * Reduces all the values in a collection down into a single value. Does so by iterating through the
- * collection from left to right, repeatedly calling an `iterator` function and passing to it four
- * arguments: `(accumulator, value, index, collection)`.
- *
- * Returns the final return value of the `iterator` function.
- *
- * @name foldl
- * @api public
- * @param {Function} iterator The function to invoke per iteration.
- * @param {*} accumulator The initial accumulator value, passed to the first invocation of `iterator`.
- * @param {Array|Object} collection The collection to iterate over.
- * @return {*} The return value of the final call to `iterator`.
- * @example
- * foldl(function(total, n) {
- *   return total + n;
- * }, 0, [1, 2, 3]);
- * //=> 6
- *
- * var phonebook = { bob: '555-111-2345', tim: '655-222-6789', sheila: '655-333-1298' };
- *
- * foldl(function(results, phoneNumber) {
- *  if (phoneNumber[0] === '6') {
- *    return results.concat(phoneNumber);
- *  }
- *  return results;
- * }, [], phonebook);
- * // => ['655-222-6789', '655-333-1298']
- */
-
-var foldl = function foldl(iterator, accumulator, collection) {
-  if (typeof iterator !== 'function') {
-    throw new TypeError('Expected a function but received a ' + typeof iterator);
-  }
-
-  each(function(val, i, collection) {
-    accumulator = iterator(accumulator, val, i, collection);
-  }, collection);
-
-  return accumulator;
-};
-
-/**
- * Exports.
- */
-
-module.exports = foldl;
-
-}, {"each":72}],
-181: [function(require, module, exports) {
+182: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -8459,8 +8548,8 @@ module.exports = function loadIframe(options, fn){
   // give it an ID or attributes.
   return iframe;
 };
-}, {"script-onload":185,"next-tick":57,"type":47}],
-185: [function(require, module, exports) {
+}, {"script-onload":186,"next-tick":58,"type":48}],
+186: [function(require, module, exports) {
 
 // https://github.com/thirdpartyjs/thirdpartyjs-code/blob/master/examples/templates/02/loading-files/index.html
 
@@ -8516,7 +8605,7 @@ function attach(el, fn){
 }
 
 }, {}],
-182: [function(require, module, exports) {
+183: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -8577,8 +8666,8 @@ module.exports = function loadScript(options, fn){
   // give it an ID or attributes.
   return script;
 };
-}, {"script-onload":185,"next-tick":57,"type":47}],
-183: [function(require, module, exports) {
+}, {"script-onload":186,"next-tick":58,"type":48}],
+184: [function(require, module, exports) {
 
 /**
  * Expose `toNoCase`.
@@ -8651,7 +8740,7 @@ function uncamelize (string) {
   });
 }
 }, {}],
-174: [function(require, module, exports) {
+176: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -8815,8 +8904,8 @@ function objectify(str) {
   };
 }
 
-}, {"emitter":8,"domify":186,"each":177,"includes":70}],
-186: [function(require, module, exports) {
+}, {"emitter":8,"domify":187,"each":179,"includes":73}],
+187: [function(require, module, exports) {
 
 /**
  * Expose `parse`.
@@ -8927,7 +9016,7 @@ function parse(html, doc) {
 }
 
 }, {}],
-167: [function(require, module, exports) {
+169: [function(require, module, exports) {
 var toSpace = require('to-space-case');
 
 
@@ -8950,8 +9039,8 @@ function toSnakeCase (string) {
   return toSpace(string).replace(/\s/g, '_');
 }
 
-}, {"to-space-case":187}],
-187: [function(require, module, exports) {
+}, {"to-space-case":188}],
+188: [function(require, module, exports) {
 
 var clean = require('to-no-case');
 
@@ -8976,8 +9065,8 @@ function toSpaceCase (string) {
     return match ? ' ' + match : '';
   });
 }
-}, {"to-no-case":188}],
-188: [function(require, module, exports) {
+}, {"to-no-case":189}],
+189: [function(require, module, exports) {
 
 /**
  * Expose `toNoCase`.
@@ -9053,7 +9142,7 @@ function uncamelize (string) {
   });
 }
 }, {}],
-168: [function(require, module, exports) {
+170: [function(require, module, exports) {
 
 /**
  * Protocol.
@@ -9092,7 +9181,7 @@ function check () {
   );
 }
 }, {}],
-80: [function(require, module, exports) {
+82: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -9182,8 +9271,8 @@ AdWords.prototype.track = function(track) {
   });
 };
 
-}, {"each":4,"analytics.js-integration":166}],
-81: [function(require, module, exports) {
+}, {"each":4,"analytics.js-integration":168}],
+83: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -9233,8 +9322,8 @@ Alexa.prototype.loaded = function() {
   return !!window.atrk;
 };
 
-}, {"analytics.js-integration":166}],
-82: [function(require, module, exports) {
+}, {"analytics.js-integration":168}],
+84: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -9397,8 +9486,8 @@ Amplitude.prototype.setDeviceId = function(deviceId) {
   if (deviceId) window.amplitude.setDeviceId(deviceId);
 };
 
-}, {"analytics.js-integration":166,"top-domain":189}],
-189: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"top-domain":190}],
+190: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -9446,8 +9535,8 @@ function domain(url){
   return match ? match[0] : '';
 };
 
-}, {"url":64}],
-83: [function(require, module, exports) {
+}, {"url":65}],
+85: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -9523,8 +9612,8 @@ Appcues.prototype.identify = function(identify) {
   window.Appcues.identify(identify.userId(), identify.traits());
 };
 
-}, {"analytics.js-integration":166,"is":18,"load-script":190}],
-190: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"is":19,"load-script":191}],
+191: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -9585,8 +9674,8 @@ module.exports = function loadScript(options, fn){
   // give it an ID or attributes.
   return script;
 };
-}, {"script-onload":185,"next-tick":57,"type":47}],
-84: [function(require, module, exports) {
+}, {"script-onload":186,"next-tick":58,"type":48}],
+86: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -9645,8 +9734,8 @@ Atatus.prototype.identify = function(identify) {
   window.atatus.setCustomData({ person: identify.traits() });
 };
 
-}, {"analytics.js-integration":166,"is":18}],
-85: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"is":19}],
+87: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -9721,8 +9810,8 @@ Autosend.prototype.track = function(track) {
   window._autosend.track(track.event());
 };
 
-}, {"analytics.js-integration":166}],
-86: [function(require, module, exports) {
+}, {"analytics.js-integration":168}],
+88: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -9781,8 +9870,8 @@ Awesm.prototype.track = function(track) {
   });
 };
 
-}, {"each":4,"analytics.js-integration":166}],
-87: [function(require, module, exports) {
+}, {"each":4,"analytics.js-integration":168}],
+89: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -9869,8 +9958,8 @@ Bing.prototype.track = function(track) {
   window.uetq.push(event);
 };
 
-}, {"analytics.js-integration":166}],
-88: [function(require, module, exports) {
+}, {"analytics.js-integration":168}],
+90: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -10011,8 +10100,8 @@ function removeBlankAttributes(obj) {
   }, {}, obj);
 }
 
-}, {"analytics.js-integration":166,"foldl":180}],
-89: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"foldl":17}],
+91: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -10113,8 +10202,8 @@ Bronto.prototype.completedOrder = function(track) {
   });
 };
 
-}, {"facade":9,"each":4,"analytics.js-integration":166,"querystring":191}],
-191: [function(require, module, exports) {
+}, {"facade":9,"each":4,"analytics.js-integration":168,"querystring":192}],
+192: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -10189,8 +10278,8 @@ exports.stringify = function(obj){
   return pairs.join('&');
 };
 
-}, {"trim":54,"type":47}],
-90: [function(require, module, exports) {
+}, {"trim":55,"type":48}],
+92: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -10238,8 +10327,8 @@ BugHerd.prototype.loaded = function() {
   return !!window._bugHerd;
 };
 
-}, {"analytics.js-integration":166,"next-tick":57}],
-91: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"next-tick":58}],
+93: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -10319,8 +10408,8 @@ Bugsnag.prototype.identify = function(identify) {
   extend(window.Bugsnag.metaData, identify.traits());
 };
 
-}, {"analytics.js-integration":166,"is":18,"extend":68}],
-92: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"is":19,"extend":71}],
+94: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -10424,8 +10513,8 @@ Chameleon.prototype.alias = function(alias) {
   window.chmln.alias({ from: fromId, to: alias.userId() });
 };
 
-}, {"analytics.js-integration":166,"each":4}],
-93: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"each":4}],
+95: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -10501,8 +10590,8 @@ Chartbeat.prototype.page = function(page) {
   window.pSUPERFLY.virtualPage(props.path, name || props.title);
 };
 
-}, {"defaults":192,"analytics.js-integration":166,"on-body":193}],
-192: [function(require, module, exports) {
+}, {"defaults":193,"analytics.js-integration":168,"on-body":194}],
+193: [function(require, module, exports) {
 /**
  * Expose `defaults`.
  */
@@ -10519,7 +10608,7 @@ function defaults (dest, defaults) {
 };
 
 }, {}],
-193: [function(require, module, exports) {
+194: [function(require, module, exports) {
 var each = require('each');
 
 
@@ -10573,132 +10662,8 @@ var interval = setInterval(function () {
 function call (callback) {
   callback(document.body);
 }
-}, {"each":177}],
-94: [function(require, module, exports) {
-
-/**
- * Module dependencies.
- */
-
-var date = require('load-date');
-var domify = require('domify');
-var each = require('each');
-var integration = require('analytics.js-integration');
-var is = require('is');
-var onBody = require('on-body');
-var useHttps = require('use-https');
-
-/**
- * Expose `ClickTale` integration.
- */
-
-var ClickTale = module.exports = integration('ClickTale')
-  .assumesPageview()
-  .global('WRInitTime')
-  .global('ClickTale')
-  .global('ClickTaleSetUID')
-  .global('ClickTaleField')
-  .global('ClickTaleEvent')
-  .option('httpCdnUrl', 'http://s.clicktale.net/WRe0.js')
-  .option('httpsCdnUrl', '')
-  .option('projectId', '')
-  .option('recordingRatio', 0.01)
-  .option('partitionId', '')
-  .tag('<script src="{{src}}">');
-
-/**
- * Initialize.
- *
- * http://wiki.clicktale.com/Article/JavaScript_API
- *
- * @api public
- */
-
-ClickTale.prototype.initialize = function() {
-  var self = this;
-  window.WRInitTime = date.getTime();
-
-  onBody(function(body) {
-    body.appendChild(domify('<div id="ClickTaleDiv" style="display: none;">'));
-  });
-
-  var http = this.options.httpCdnUrl;
-  var https = this.options.httpsCdnUrl;
-  if (useHttps() && !https) return this.debug('https option required');
-  var src = useHttps() ? https : http;
-
-  this.load({ src: src }, function() {
-    window.ClickTale(
-      self.options.projectId,
-      self.options.recordingRatio,
-      self.options.partitionId
-    );
-    self.ready();
-  });
-};
-
-/**
- * Loaded?
- *
- * @api private
- * @return {boolean}
- */
-
-ClickTale.prototype.loaded = function() {
-  return is.fn(window.ClickTale);
-};
-
-/**
- * Identify.
- *
- * http://wiki.clicktale.com/Article/ClickTaleTag#ClickTaleSetUID
- * http://wiki.clicktale.com/Article/ClickTaleTag#ClickTaleField
- *
- * @api public
- * @param {Identify} identify
- */
-
-ClickTale.prototype.identify = function(identify) {
-  var id = identify.userId();
-  window.ClickTaleSetUID(id);
-  each(identify.traits(), function(key, value) {
-    window.ClickTaleField(key, value);
-  });
-};
-
-/**
- * Track.
- *
- * http://wiki.clicktale.com/Article/ClickTaleTag#ClickTaleEvent
- *
- * @api public
- * @param {Track} track
- */
-
-ClickTale.prototype.track = function(track) {
-  window.ClickTaleEvent(track.event());
-};
-
-}, {"load-date":194,"domify":186,"each":4,"analytics.js-integration":166,"is":18,"on-body":193,"use-https":168}],
-194: [function(require, module, exports) {
-
-
-/*
- * Load date.
- *
- * For reference: http://www.html5rocks.com/en/tutorials/webperformance/basics/
- */
-
-var time = new Date()
-  , perf = window.performance;
-
-if (perf && perf.timing && perf.timing.responseEnd) {
-  time = new Date(perf.timing.responseEnd);
-}
-
-module.exports = time;
-}, {}],
-95: [function(require, module, exports) {
+}, {"each":179}],
+96: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -10799,8 +10764,8 @@ Clicky.prototype.track = function(track) {
   window.clicky.goal(track.event(), track.revenue());
 };
 
-}, {"facade":9,"extend":68,"analytics.js-integration":166,"is":18}],
-96: [function(require, module, exports) {
+}, {"facade":9,"extend":71,"analytics.js-integration":168,"is":19}],
+97: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -10856,8 +10821,8 @@ Comscore.prototype.page = function() {
   window.COMSCORE.beacon(this.options);
 };
 
-}, {"analytics.js-integration":166,"use-https":168}],
-97: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"use-https":170}],
+98: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -10899,8 +10864,8 @@ CrazyEgg.prototype.loaded = function() {
   return !!window.CE2;
 };
 
-}, {"analytics.js-integration":166}],
-98: [function(require, module, exports) {
+}, {"analytics.js-integration":168}],
+99: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -11085,7 +11050,7 @@ Curebit.prototype.completedOrder = function(track) {
   });
 };
 
-}, {"facade":9,"bind":55,"each":4,"analytics.js-integration":166,"to-iso-string":195,"global-queue":196,"throttle":197,"when":198}],
+}, {"facade":9,"bind":56,"each":4,"analytics.js-integration":168,"to-iso-string":195,"global-queue":196,"throttle":197,"when":198}],
 195: [function(require, module, exports) {
 
 /**
@@ -11221,7 +11186,7 @@ function when (condition, fn, interval) {
   }, interval || 10);
 }
 }, {"callback":12}],
-99: [function(require, module, exports) {
+100: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -11333,7 +11298,7 @@ function convertDate(date) {
   return Math.floor(date.getTime() / 1000);
 }
 
-}, {"facade":9,"alias":199,"convert-dates":200,"analytics.js-integration":166}],
+}, {"facade":9,"alias":199,"convert-dates":200,"analytics.js-integration":168}],
 199: [function(require, module, exports) {
 
 var type = require('type');
@@ -11397,7 +11362,7 @@ function aliasByFunction (obj, convert) {
   for (var key in obj) output[convert(key)] = obj[key];
   return output;
 }
-}, {"type":47,"clone":49}],
+}, {"type":48,"clone":50}],
 200: [function(require, module, exports) {
 
 var is = require('is');
@@ -11433,8 +11398,8 @@ function convertDates (obj, convert) {
   }
   return obj;
 }
-}, {"is":18,"clone":13}],
-100: [function(require, module, exports) {
+}, {"is":19,"clone":13}],
+101: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -11507,8 +11472,8 @@ Drip.prototype.identify = function(identify) {
   push('identify', identify.traits());
 };
 
-}, {"analytics.js-integration":166,"is":18,"global-queue":196}],
-101: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"is":19,"global-queue":196}],
+102: [function(require, module, exports) {
 var integration = require('analytics.js-integration');
 var tick = require('next-tick');
 
@@ -11566,8 +11531,8 @@ Elevio.prototype.identify = function(identify) {
   window._elev.user = user;
 };
 
-}, {"analytics.js-integration":166,"next-tick":57}],
-102: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"next-tick":58}],
+103: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -11631,7 +11596,7 @@ Errorception.prototype.identify = function(identify) {
   extend(window._errs.meta, traits);
 };
 
-}, {"extend":68,"analytics.js-integration":166,"on-error":201,"global-queue":196}],
+}, {"extend":71,"analytics.js-integration":168,"on-error":201,"global-queue":196}],
 201: [function(require, module, exports) {
 
 /**
@@ -11685,7 +11650,7 @@ function onError (fn) {
   }
 }
 }, {}],
-103: [function(require, module, exports) {
+104: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -11806,8 +11771,8 @@ Evergage.prototype.track = function(track) {
   push('trackAction', track.event(), track.properties());
 };
 
-}, {"each":4,"analytics.js-integration":166,"global-queue":196}],
-104: [function(require, module, exports) {
+}, {"each":4,"analytics.js-integration":168,"global-queue":196}],
+105: [function(require, module, exports) {
 'use strict';
 
 /**
@@ -11946,8 +11911,8 @@ Extole.prototype._createConversionTag = function(conversion) {
   return domify('<script type="extole/conversion">' + json.stringify(conversion) + '</script>');
 };
 
-}, {"bind":55,"domify":186,"each":4,"extend":68,"analytics.js-integration":166,"json":59}],
-105: [function(require, module, exports) {
+}, {"bind":56,"domify":187,"each":4,"extend":71,"analytics.js-integration":168,"json":60}],
+106: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -12026,8 +11991,8 @@ Facebook.prototype.track = function(track) {
   });
 };
 
-}, {"each":4,"analytics.js-integration":166,"global-queue":196}],
-106: [function(require, module, exports) {
+}, {"each":4,"analytics.js-integration":168,"global-queue":196}],
+107: [function(require, module, exports) {
 /**
  * Module dependencies.
  */
@@ -12151,7 +12116,7 @@ FacebookCustomAudiences.prototype.completedOrder = function(track) {
   });
 };
 
-}, {"analytics.js-integration":166,"global-queue":196,"reduce":202}],
+}, {"analytics.js-integration":168,"global-queue":196,"reduce":202}],
 202: [function(require, module, exports) {
 
 var each = require('each');
@@ -12172,8 +12137,1053 @@ module.exports = function reduce (obj, memo, iterator) {
   });
   return memo;
 };
-}, {"each":177}],
-107: [function(require, module, exports) {
+}, {"each":179}],
+108: [function(require, module, exports) {
+
+/**
+ * Module dependencies.
+ */
+
+var integration = require('analytics.js-integration');
+var foldl = require('foldl');
+var each = require('each');
+
+/**
+ * Expose `Facebook Pixel`.
+ */
+
+var FacebookPixel = module.exports = integration('Facebook Pixel')
+  .global('fbq')
+  .option('pixelId', '')
+  .mapping('standardEvents')
+  .mapping('legacyEvents')
+  .tag('<script src="//connect.facebook.net/en_US/fbevents.js">');
+
+/**
+ * Initialize Facebook Pixel.
+ *
+ * @param {Facade} page
+ */
+
+FacebookPixel.prototype.initialize = function(){
+  window.fbq = window._fbq = function() {
+    if (window.fbq.callMethod) {
+      window.fbq.callMethod.apply(window.fbq, arguments);
+    } else {
+      window.fbq.queue.push(arguments);
+    }
+  };
+  window.fbq.push = window.fbq;
+  window.fbq.loaded = true;
+  window.fbq.version = '2.0';
+  window.fbq.queue = [];
+  this.load(this.ready);
+  window.fbq('init', this.options.pixelId);
+};
+
+/**
+ * Has the Facebook Pixel library been loaded yet?
+ *
+ * @return {Boolean}
+ */
+
+FacebookPixel.prototype.loaded = function(){
+  return !!(window.fbq && window.fbq.callMethod);
+};
+
+/**
+ * Trigger a page view.
+ *
+ * @param {Facade} identify
+ */
+
+FacebookPixel.prototype.page = function(){
+  window.fbq('track', 'PageView');
+};
+
+/**
+ * Track an event.
+ *
+ * @param {Facade} track
+ */
+
+FacebookPixel.prototype.track = function(track){
+  var event = track.event();
+  var revenue = formatRevenue(track.revenue());
+
+  var payload = foldl(function(acc, val, key) {
+    if (key === 'revenue') {
+      acc.value = revenue;
+      return acc;
+    }
+
+    acc[key] = val;
+    return acc;
+  }, {}, track.properties());
+
+  var standard = this.standardEvents(event);
+  var legacy = this.legacyEvents(event);
+
+  // non-mapped events get sent as "custom events" with full
+  // tranformed payload
+  if (![].concat(standard, legacy).length) {
+    window.fbq('trackCustom', event, payload);
+    return;
+  }
+
+  // standard conversion events, mapped to one of 9 standard events
+  // send full transformed payload
+  each(function(event) {
+    window.fbq('track', event, payload);
+  }, standard);
+
+  // legacy conversion events — mapped to specific "pixelId"s
+  // send only currency and value
+  each(function(event) {
+    window.fbq('track', event, {
+      currency: track.currency(),
+      value: revenue
+    });
+  }, legacy);
+};
+
+/**
+ * Viewed product category.
+ *
+ * @api private
+ * @param {Track} track category
+ */
+
+FacebookPixel.prototype.viewedProductCategory = function(track) {
+  window.fbq('track', 'ViewContent', {
+    content_ids: [track.category() || ''],
+    content_type: 'product_group'
+  });
+};
+
+/**
+ * Viewed product.
+ *
+ * @api private
+ * @param {Track} track
+ */
+
+FacebookPixel.prototype.viewedProduct = function(track) {
+  window.fbq('track', 'ViewContent', {
+    content_ids: [track.id() || track.sku() || ''],
+    content_type: 'product',
+    content_name: track.name() || '',
+    content_category: track.category() || '',
+    currency: track.currency(),
+    value: formatRevenue(track.price())
+  });
+};
+
+/**
+ * Added product.
+ *
+ * @api private
+ * @param {Track} track
+ */
+
+FacebookPixel.prototype.addedProduct = function(track) {
+  window.fbq('track', 'AddToCart', {
+    content_ids: [track.id() || track.sku() || ''],
+    content_type: 'product',
+    content_name: track.name() || '',
+    content_category: track.category() || '',
+    currency: track.currency(),
+    value: formatRevenue(track.price())
+  });
+};
+
+/**
+ * Completed Order.
+ *
+ * @api private
+ * @param {Track} track
+ */
+
+FacebookPixel.prototype.completedOrder = function(track) {
+  var key;
+  var content_ids = foldl(function(acc, product) {
+    key = product.id || product.sku;
+    if (key) acc.push(key);
+    return acc;
+  }, [], track.products() || []);
+
+  var revenue = formatRevenue(track.revenue());
+
+  window.fbq('track', 'Purchase', {
+    content_ids: content_ids,
+    content_type: 'product',
+    currency: track.currency(),
+    value: revenue
+  });
+};
+
+
+/**
+ * Get Revenue Formatted Correctly for FB.
+ *
+ * @api private
+ * @param {Track} track
+ */
+
+function formatRevenue(revenue) {
+  return Number(revenue || 0).toFixed(2);
+}
+
+}, {"analytics.js-integration":203,"foldl":17,"each":67}],
+203: [function(require, module, exports) {
+
+/**
+ * Module dependencies.
+ */
+
+var bind = require('bind');
+var clone = require('clone');
+var debug = require('debug');
+var defaults = require('defaults');
+var extend = require('extend');
+var slug = require('slug');
+var protos = require('./protos');
+var statics = require('./statics');
+
+/**
+ * Create a new `Integration` constructor.
+ *
+ * @constructs Integration
+ * @param {string} name
+ * @return {Function} Integration
+ */
+
+function createIntegration(name){
+  /**
+   * Initialize a new `Integration`.
+   *
+   * @class
+   * @param {Object} options
+   */
+
+  function Integration(options){
+    if (options && options.addIntegration) {
+      // plugin
+      return options.addIntegration(Integration);
+    }
+    this.debug = debug('analytics:integration:' + slug(name));
+    this.options = defaults(clone(options) || {}, this.defaults);
+    this._queue = [];
+    this.once('ready', bind(this, this.flush));
+
+    Integration.emit('construct', this);
+    this.ready = bind(this, this.ready);
+    this._wrapInitialize();
+    this._wrapPage();
+    this._wrapTrack();
+  }
+
+  Integration.prototype.defaults = {};
+  Integration.prototype.globals = [];
+  Integration.prototype.templates = {};
+  Integration.prototype.name = name;
+  extend(Integration, statics);
+  extend(Integration.prototype, protos);
+
+  return Integration;
+}
+
+/**
+ * Exports.
+ */
+
+module.exports = createIntegration;
+
+}, {"bind":171,"clone":13,"debug":172,"defaults":16,"extend":173,"slug":174,"./protos":204,"./statics":205}],
+204: [function(require, module, exports) {
+/* global setInterval:true setTimeout:true */
+
+/**
+ * Module dependencies.
+ */
+
+var Emitter = require('emitter');
+var after = require('after');
+var each = require('each');
+var events = require('analytics-events');
+var fmt = require('fmt');
+var foldl = require('foldl');
+var loadIframe = require('load-iframe');
+var loadScript = require('load-script');
+var normalize = require('to-no-case');
+var nextTick = require('next-tick');
+var every = require('every');
+var is = require('is');
+
+/**
+ * Noop.
+ */
+
+function noop(){}
+
+/**
+ * hasOwnProperty reference.
+ */
+
+var has = Object.prototype.hasOwnProperty;
+
+/**
+ * Window defaults.
+ */
+
+var onerror = window.onerror;
+var onload = null;
+var setInterval = window.setInterval;
+var setTimeout = window.setTimeout;
+
+/**
+ * Mixin emitter.
+ */
+
+/* eslint-disable new-cap */
+Emitter(exports);
+/* eslint-enable new-cap */
+
+/**
+ * Initialize.
+ */
+
+exports.initialize = function(){
+  var ready = this.ready;
+  nextTick(ready);
+};
+
+/**
+ * Loaded?
+ *
+ * @api private
+ * @return {boolean}
+ */
+
+exports.loaded = function(){
+  return false;
+};
+
+/**
+ * Page.
+ *
+ * @api public
+ * @param {Page} page
+ */
+
+/* eslint-disable no-unused-vars */
+exports.page = function(page){};
+/* eslint-enable no-unused-vars */
+
+/**
+ * Track.
+ *
+ * @api public
+ * @param {Track} track
+ */
+
+/* eslint-disable no-unused-vars */
+exports.track = function(track){};
+/* eslint-enable no-unused-vars */
+
+/**
+ * Get values from items in `options` that are mapped to `key`.
+ * `options` is an integration setting which is a collection
+ * of type 'map', 'array', or 'mixed'
+ *
+ * Use cases include mapping events to pixelIds (map), sending generic
+ * conversion pixels only for specific events (array), or configuring dynamic
+ * mappings of event properties to query string parameters based on event (mixed)
+ *
+ * @api public
+ * @param {Object|Object[]|String[]} options An object, array of objects, or
+ * array of strings pulled from settings.mapping.
+ * @param {string} key The name of the item in options whose metadata
+ * we're looking for.
+ * @return {Array} An array of settings that match the input `key` name.
+ * @example
+ *
+ * // 'Map'
+ * var events = { my_event: 'a4991b88' };
+ * .map(events, 'My Event');
+ * // => ["a4991b88"]
+ * .map(events, 'whatever');
+ * // => []
+ *
+ * // 'Array'
+ * * var events = ['Completed Order', 'My Event'];
+ * .map(events, 'My Event');
+ * // => ["My Event"]
+ * .map(events, 'whatever');
+ * // => []
+ *
+ * // 'Mixed'
+ * var events = [{ key: 'my event', value: '9b5eb1fa' }];
+ * .map(events, 'my_event');
+ * // => ["9b5eb1fa"]
+ * .map(events, 'whatever');
+ * // => []
+ */
+
+exports.map = function(options, key){
+  var normalizedComparator = normalize(key);
+  var mappingType = getMappingType(options);
+
+  if (mappingType === 'unknown') {
+    return [];
+  }
+
+  return foldl(function(matchingValues, val, key) {
+    var compare;
+    var result;
+
+    if (mappingType === 'map') {
+      compare = key;
+      result = val;
+    }
+
+    if (mappingType === 'array') {
+      compare = val;
+      result = val;
+    }
+
+    if (mappingType === 'mixed') {
+      compare = val.key;
+      result = val.value;
+    }
+
+    if (normalize(compare) === normalizedComparator) {
+      matchingValues.push(result);
+    }
+
+    return matchingValues;
+  }, [], options);
+};
+
+/**
+ * Invoke a `method` that may or may not exist on the prototype with `args`,
+ * queueing or not depending on whether the integration is "ready". Don't
+ * trust the method call, since it contains integration party code.
+ *
+ * @api private
+ * @param {string} method
+ * @param {...*} args
+ */
+
+exports.invoke = function(method){
+  if (!this[method]) return;
+  var args = Array.prototype.slice.call(arguments, 1);
+  if (!this._ready) return this.queue(method, args);
+  var ret;
+
+  try {
+    this.debug('%s with %o', method, args);
+    ret = this[method].apply(this, args);
+  } catch (e) {
+    this.debug('error %o calling %s with %o', e, method, args);
+  }
+
+  return ret;
+};
+
+/**
+ * Queue a `method` with `args`. If the integration assumes an initial
+ * pageview, then let the first call to `page` pass through.
+ *
+ * @api private
+ * @param {string} method
+ * @param {Array} args
+ */
+
+exports.queue = function(method, args){
+  if (method === 'page' && this._assumesPageview && !this._initialized) {
+    return this.page.apply(this, args);
+  }
+
+  this._queue.push({ method: method, args: args });
+};
+
+/**
+ * Flush the internal queue.
+ *
+ * @api private
+ */
+
+exports.flush = function(){
+  this._ready = true;
+  var self = this;
+
+  each(this._queue, function(call){
+    self[call.method].apply(self, call.args);
+  });
+
+  // Empty the queue.
+  this._queue.length = 0;
+};
+
+/**
+ * Reset the integration, removing its global variables.
+ *
+ * @api private
+ */
+
+exports.reset = function(){
+  for (var i = 0; i < this.globals.length; i++) {
+    window[this.globals[i]] = undefined;
+  }
+
+  window.setTimeout = setTimeout;
+  window.setInterval = setInterval;
+  window.onerror = onerror;
+  window.onload = onload;
+};
+
+/**
+ * Load a tag by `name`.
+ *
+ * @param {string} name The name of the tag.
+ * @param {Object} locals Locals used to populate the tag's template variables
+ * (e.g. `userId` in '<img src="https://whatever.com/{{ userId }}">').
+ * @param {Function} [callback=noop] A callback, invoked when the tag finishes
+ * loading.
+ */
+
+exports.load = function(name, locals, callback){
+  // Argument shuffling
+  if (typeof name === 'function') { callback = name; locals = null; name = null; }
+  if (name && typeof name === 'object') { callback = locals; locals = name; name = null; }
+  if (typeof locals === 'function') { callback = locals; locals = null; }
+
+  // Default arguments
+  name = name || 'library';
+  locals = locals || {};
+
+  locals = this.locals(locals);
+  var template = this.templates[name];
+  if (!template) throw new Error(fmt('template "%s" not defined.', name));
+  var attrs = render(template, locals);
+  callback = callback || noop;
+  var self = this;
+  var el;
+
+  switch (template.type) {
+    case 'img':
+      attrs.width = 1;
+      attrs.height = 1;
+      el = loadImage(attrs, callback);
+      break;
+    case 'script':
+      el = loadScript(attrs, function(err){
+        if (!err) return callback();
+        self.debug('error loading "%s" error="%s"', self.name, err);
+      });
+      // TODO: hack until refactoring load-script
+      delete attrs.src;
+      each(attrs, function(key, val){
+        el.setAttribute(key, val);
+      });
+      break;
+    case 'iframe':
+      el = loadIframe(attrs, callback);
+      break;
+    default:
+      // No default case
+  }
+
+  return el;
+};
+
+/**
+ * Locals for tag templates.
+ *
+ * By default it includes a cache buster and all of the options.
+ *
+ * @param {Object} [locals]
+ * @return {Object}
+ */
+
+exports.locals = function(locals){
+  locals = locals || {};
+  var cache = Math.floor(new Date().getTime() / 3600000);
+  if (!locals.hasOwnProperty('cache')) locals.cache = cache;
+  each(this.options, function(key, val){
+    if (!locals.hasOwnProperty(key)) locals[key] = val;
+  });
+  return locals;
+};
+
+/**
+ * Simple way to emit ready.
+ *
+ * @api public
+ */
+
+exports.ready = function(){
+  this.emit('ready');
+};
+
+/**
+ * Wrap the initialize method in an exists check, so we don't have to do it for
+ * every single integration.
+ *
+ * @api private
+ */
+
+exports._wrapInitialize = function(){
+  var initialize = this.initialize;
+  this.initialize = function(){
+    this.debug('initialize');
+    this._initialized = true;
+    var ret = initialize.apply(this, arguments);
+    this.emit('initialize');
+    return ret;
+  };
+
+  if (this._assumesPageview) this.initialize = after(2, this.initialize);
+};
+
+/**
+ * Wrap the page method to call `initialize` instead if the integration assumes
+ * a pageview.
+ *
+ * @api private
+ */
+
+exports._wrapPage = function(){
+  var page = this.page;
+  this.page = function(){
+    if (this._assumesPageview && !this._initialized) {
+      return this.initialize.apply(this, arguments);
+    }
+
+    return page.apply(this, arguments);
+  };
+};
+
+/**
+ * Wrap the track method to call other ecommerce methods if available depending
+ * on the `track.event()`.
+ *
+ * @api private
+ */
+
+exports._wrapTrack = function(){
+  var t = this.track;
+  this.track = function(track){
+    var event = track.event();
+    var called;
+    var ret;
+
+    for (var method in events) {
+      if (has.call(events, method)) {
+        var regexp = events[method];
+        if (!this[method]) continue;
+        if (!regexp.test(event)) continue;
+        ret = this[method].apply(this, arguments);
+        called = true;
+        break;
+      }
+    }
+
+    if (!called) ret = t.apply(this, arguments);
+    return ret;
+  };
+};
+
+/**
+ * Determine the type of the option passed to `#map`
+ *
+ * @api private
+ * @param {Object|Object[]} mapping
+ * @return {String} mappingType
+ */
+
+function getMappingType(mapping) {
+  if (is.array(mapping)) {
+    return every(isMixed, mapping) ? 'mixed' : 'array';
+  }
+  if (is.object(mapping)) return 'map';
+  return 'unknown';
+}
+
+/**
+ * Determine if item in mapping array is a valid "mixed" type value
+ *
+ * Must be an object with properties "key" (of type string)
+ * and "value" (of any type)
+ *
+ * @api private
+ * @param {*} item
+ * @return {Boolean}
+ */
+
+function isMixed(item) {
+  if (!is.object(item)) return false;
+  if (!is.string(item.key)) return false;
+  if (!has.call(item, 'value')) return false;
+  return true;
+}
+
+/**
+ * TODO: Document me
+ *
+ * @api private
+ * @param {Object} attrs
+ * @param {Function} fn
+ * @return {Image}
+ */
+
+function loadImage(attrs, fn){
+  fn = fn || function(){};
+  var img = new Image();
+  img.onerror = error(fn, 'failed to load pixel', img);
+  img.onload = function(){ fn(); };
+  img.src = attrs.src;
+  img.width = 1;
+  img.height = 1;
+  return img;
+}
+
+/**
+ * TODO: Document me
+ *
+ * @api private
+ * @param {Function} fn
+ * @param {string} message
+ * @param {Element} img
+ * @return {Function}
+ */
+
+function error(fn, message, img){
+  return function(e){
+    e = e || window.event;
+    var err = new Error(message);
+    err.event = e;
+    err.source = img;
+    fn(err);
+  };
+}
+
+/**
+ * Render template + locals into an `attrs` object.
+ *
+ * @api private
+ * @param {Object} template
+ * @param {Object} locals
+ * @return {Object}
+ */
+
+function render(template, locals){
+  return foldl(function(attrs, val, key) {
+    attrs[key] = val.replace(/\{\{\ *(\w+)\ *\}\}/g, function(_, $1){
+      return locals[$1];
+    });
+    return attrs;
+  }, {}, template.attrs);
+}
+
+}, {"emitter":8,"after":10,"each":179,"analytics-events":180,"fmt":181,"foldl":17,"load-iframe":182,"load-script":183,"to-no-case":184,"next-tick":58,"every":206,"is":207}],
+206: [function(require, module, exports) {
+'use strict';
+
+/**
+ * Module dependencies.
+ */
+
+// FIXME: Hacky workaround for Duo
+var each; try { each = require('@ndhoule/each'); } catch(e) { each = require('each'); }
+
+/**
+ * Check if a predicate function returns `true` for all values in a `collection`.
+ * Checks owned, enumerable values and exits early when `predicate` returns
+ * `false`.
+ *
+ * @name every
+ * @param {Function} predicate The function used to test values.
+ * @param {Array|Object|string} collection The collection to search.
+ * @return {boolean} True if all values passes the predicate test, otherwise false.
+ * @example
+ * var isEven = function(num) { return num % 2 === 0; };
+ *
+ * every(isEven, []); // => true
+ * every(isEven, [1, 2]); // => false
+ * every(isEven, [2, 4, 6]); // => true
+ */
+
+var every = function every(predicate, collection) {
+  if (typeof predicate !== 'function') {
+    throw new TypeError('`predicate` must be a function but was a ' + typeof predicate);
+  }
+
+  var result = true;
+
+  each(function(val, key, collection) {
+    result = !!predicate(val, key, collection);
+
+    // Exit early
+    if (!result) {
+      return false;
+    }
+  }, collection);
+
+  return result;
+};
+
+/**
+ * Exports.
+ */
+
+module.exports = every;
+
+}, {"each":67}],
+207: [function(require, module, exports) {
+
+var isEmpty = require('is-empty');
+
+try {
+  var typeOf = require('type');
+} catch (e) {
+  var typeOf = require('component-type');
+}
+
+
+/**
+ * Types.
+ */
+
+var types = [
+  'arguments',
+  'array',
+  'boolean',
+  'date',
+  'element',
+  'function',
+  'null',
+  'number',
+  'object',
+  'regexp',
+  'string',
+  'undefined'
+];
+
+
+/**
+ * Expose type checkers.
+ *
+ * @param {Mixed} value
+ * @return {Boolean}
+ */
+
+for (var i = 0, type; type = types[i]; i++) exports[type] = generate(type);
+
+
+/**
+ * Add alias for `function` for old browsers.
+ */
+
+exports.fn = exports['function'];
+
+
+/**
+ * Expose `empty` check.
+ */
+
+exports.empty = isEmpty;
+
+
+/**
+ * Expose `nan` check.
+ */
+
+exports.nan = function (val) {
+  return exports.number(val) && val != val;
+};
+
+
+/**
+ * Generate a type checker.
+ *
+ * @param {String} type
+ * @return {Function}
+ */
+
+function generate (type) {
+  return function (value) {
+    return type === typeOf(value);
+  };
+}
+}, {"is-empty":47,"type":48,"component-type":48}],
+205: [function(require, module, exports) {
+
+/**
+ * Module dependencies.
+ */
+
+var Emitter = require('emitter');
+var domify = require('domify');
+var each = require('each');
+var includes = require('includes');
+
+/**
+ * Mix in emitter.
+ */
+
+/* eslint-disable new-cap */
+Emitter(exports);
+/* eslint-enable new-cap */
+
+/**
+ * Add a new option to the integration by `key` with default `value`.
+ *
+ * @api public
+ * @param {string} key
+ * @param {*} value
+ * @return {Integration}
+ */
+
+exports.option = function(key, value){
+  this.prototype.defaults[key] = value;
+  return this;
+};
+
+/**
+ * Add a new mapping option.
+ *
+ * This will create a method `name` that will return a mapping for you to use.
+ *
+ * @api public
+ * @param {string} name
+ * @return {Integration}
+ * @example
+ * Integration('My Integration')
+ *   .mapping('events');
+ *
+ * new MyIntegration().track('My Event');
+ *
+ * .track = function(track){
+ *   var events = this.events(track.event());
+ *   each(events, send);
+ *  };
+ */
+
+exports.mapping = function(name){
+  this.option(name, []);
+  this.prototype[name] = function(key){
+    return this.map(this.options[name], key);
+  };
+  return this;
+};
+
+/**
+ * Register a new global variable `key` owned by the integration, which will be
+ * used to test whether the integration is already on the page.
+ *
+ * @api public
+ * @param {string} key
+ * @return {Integration}
+ */
+
+exports.global = function(key){
+  this.prototype.globals.push(key);
+  return this;
+};
+
+/**
+ * Mark the integration as assuming an initial pageview, so to defer loading
+ * the script until the first `page` call, noop the first `initialize`.
+ *
+ * @api public
+ * @return {Integration}
+ */
+
+exports.assumesPageview = function(){
+  this.prototype._assumesPageview = true;
+  return this;
+};
+
+/**
+ * Mark the integration as being "ready" once `load` is called.
+ *
+ * @api public
+ * @return {Integration}
+ */
+
+exports.readyOnLoad = function(){
+  this.prototype._readyOnLoad = true;
+  return this;
+};
+
+/**
+ * Mark the integration as being "ready" once `initialize` is called.
+ *
+ * @api public
+ * @return {Integration}
+ */
+
+exports.readyOnInitialize = function(){
+  this.prototype._readyOnInitialize = true;
+  return this;
+};
+
+/**
+ * Define a tag to be loaded.
+ *
+ * @api public
+ * @param {string} [name='library'] A nicename for the tag, commonly used in
+ * #load. Helpful when the integration has multiple tags and you need a way to
+ * specify which of the tags you want to load at a given time.
+ * @param {String} str DOM tag as string or URL.
+ * @return {Integration}
+ */
+
+exports.tag = function(name, tag){
+  if (tag == null) {
+    tag = name;
+    name = 'library';
+  }
+  this.prototype.templates[name] = objectify(tag);
+  return this;
+};
+
+/**
+ * Given a string, give back DOM attributes.
+ *
+ * Do it in a way where the browser doesn't load images or iframes. It turns
+ * out domify will load images/iframes because whenever you construct those
+ * DOM elements, the browser immediately loads them.
+ *
+ * @api private
+ * @param {string} str
+ * @return {Object}
+ */
+
+function objectify(str) {
+  // replace `src` with `data-src` to prevent image loading
+  str = str.replace(' src="', ' data-src="');
+
+  var el = domify(str);
+  var attrs = {};
+
+  each(el.attributes, function(attr){
+    // then replace it back
+    var name = attr.name === 'data-src' ? 'src' : attr.name;
+    if (!includes(attr.name + '=', str)) return;
+    attrs[name] = attr.value;
+  });
+
+  return {
+    type: el.tagName.toLowerCase(),
+    attrs: attrs
+  };
+}
+
+}, {"emitter":8,"domify":187,"each":179,"includes":73}],
+109: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -12370,8 +13380,8 @@ function ecommerce(event, track, arr) {
   ].concat(arr || []));
 }
 
-}, {"facade":9,"each":4,"analytics.js-integration":166,"global-queue":196}],
-108: [function(require, module, exports) {
+}, {"facade":9,"each":4,"analytics.js-integration":168,"global-queue":196}],
+110: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -12606,8 +13616,8 @@ function flatten(source) {
   return output;
 }
 
-}, {"bind":55,"each":4,"analytics.js-integration":166,"is":18}],
-109: [function(require, module, exports) {
+}, {"bind":56,"each":4,"analytics.js-integration":168,"is":19}],
+111: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -12710,8 +13720,8 @@ function isInt(n) {
   return n === +n && n === (n | 0);
 }
 
-}, {"to-camel-case":203,"foldl":180,"analytics.js-integration":166,"is":18}],
-203: [function(require, module, exports) {
+}, {"to-camel-case":208,"foldl":17,"analytics.js-integration":168,"is":19}],
+208: [function(require, module, exports) {
 
 var toSpace = require('to-space-case');
 
@@ -12736,8 +13746,8 @@ function toCamelCase (string) {
     return letter.toUpperCase();
   });
 }
-}, {"to-space-case":187}],
-110: [function(require, module, exports) {
+}, {"to-space-case":188}],
+112: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -12791,8 +13801,8 @@ Gauges.prototype.page = function() {
   push('track');
 };
 
-}, {"analytics.js-integration":166,"global-queue":196}],
-111: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"global-queue":196}],
+113: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -12844,8 +13854,8 @@ GetSatisfaction.prototype.loaded = function() {
   return !!window.GSFN;
 };
 
-}, {"analytics.js-integration":166,"on-body":193}],
-112: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"on-body":194}],
+114: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -13733,8 +14743,8 @@ function createProductTrack(track, properties) {
   return new Track({ properties: properties });
 }
 
-}, {"facade":9,"defaults":192,"obj-case":42,"each":4,"analytics.js-integration":166,"is":18,"object":20,"global-queue":196,"select":204,"use-https":168}],
-204: [function(require, module, exports) {
+}, {"facade":9,"defaults":193,"obj-case":43,"each":4,"analytics.js-integration":168,"is":19,"object":21,"global-queue":196,"select":209,"use-https":170}],
+209: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -13764,8 +14774,8 @@ module.exports = function(arr, fn){
   return ret;
 };
 
-}, {"to-function":74}],
-113: [function(require, module, exports) {
+}, {"to-function":75}],
+115: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -13854,8 +14864,8 @@ GTM.prototype.track = function(track) {
   push(props);
 };
 
-}, {"analytics.js-integration":166,"global-queue":196}],
-114: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"global-queue":196}],
+116: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -14046,8 +15056,8 @@ function push() {
   window._gs.apply(null, arguments);
 }
 
-}, {"facade":9,"each":4,"analytics.js-integration":166,"omit":205,"pick":206}],
-205: [function(require, module, exports) {
+}, {"facade":9,"each":4,"analytics.js-integration":168,"omit":210,"pick":211}],
+210: [function(require, module, exports) {
 /**
  * Expose `omit`.
  */
@@ -14075,7 +15085,7 @@ function omit(keys, object){
   return ret;
 }
 }, {}],
-206: [function(require, module, exports) {
+211: [function(require, module, exports) {
 
 /**
  * Expose `pick`.
@@ -14102,7 +15112,7 @@ function pick(obj){
   return ret;
 }
 }, {}],
-115: [function(require, module, exports) {
+117: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -14190,8 +15200,8 @@ Heap.prototype.track = function(track) {
   window.heap.track(track.event(), track.properties());
 };
 
-}, {"analytics.js-integration":166,"each":4}],
-116: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"each":4}],
+118: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -14233,8 +15243,8 @@ Hellobar.prototype.loaded = function() {
   return !!(window._hbq && window._hbq.push !== Array.prototype.push);
 };
 
-}, {"analytics.js-integration":166}],
-117: [function(require, module, exports) {
+}, {"analytics.js-integration":168}],
+119: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -14274,8 +15284,8 @@ HitTail.prototype.loaded = function() {
   return is.fn(window.htk);
 };
 
-}, {"analytics.js-integration":166,"is":18}],
-118: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"is":19}],
+120: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -14367,8 +15377,8 @@ function convertDates(properties) {
   return convert(properties, function(date) { return date.getTime(); });
 }
 
-}, {"convert-dates":200,"analytics.js-integration":166,"global-queue":196}],
-119: [function(require, module, exports) {
+}, {"convert-dates":200,"analytics.js-integration":168,"global-queue":196}],
+121: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -14449,8 +15459,8 @@ Improvely.prototype.track = function(track) {
   window.improvely.goal(props);
 };
 
-}, {"analytics.js-integration":166}],
-120: [function(require, module, exports) {
+}, {"analytics.js-integration":168}],
+122: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -14542,8 +15552,8 @@ InsideVault.prototype.track = function(track) {
   });
 };
 
-}, {"each":4,"analytics.js-integration":166,"global-queue":196}],
-121: [function(require, module, exports) {
+}, {"each":4,"analytics.js-integration":168,"global-queue":196}],
+123: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -14629,8 +15639,8 @@ Inspectlet.prototype.page = function() {
   push('virtualPage');
 };
 
-}, {"analytics.js-integration":166,"global-queue":196}],
-122: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"global-queue":196}],
+124: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -14826,8 +15836,8 @@ function api() {
   window.Intercom.apply(window.Intercom, arguments);
 }
 
-}, {"alias":199,"convert-dates":200,"defaults":192,"obj-case":42,"analytics.js-integration":166,"is":18}],
-123: [function(require, module, exports) {
+}, {"alias":199,"convert-dates":200,"defaults":193,"obj-case":43,"analytics.js-integration":168,"is":19}],
+125: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -15024,8 +16034,8 @@ Keen.prototype.addons = function(obj, msg) {
   };
 };
 
-}, {"analytics.js-integration":166,"clone":13}],
-124: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"clone":13}],
+126: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -15105,8 +16115,8 @@ Kenshoo.prototype.track = function(track) {
   window.k_trackevent(params, this.options.subdomain);
 };
 
-}, {"includes":70,"analytics.js-integration":166,"is":18}],
-125: [function(require, module, exports) {
+}, {"includes":73,"analytics.js-integration":168,"is":19}],
+127: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -15291,8 +16301,8 @@ function prefix(event, properties) {
   return prefixed;
 }
 
-}, {"each":4,"analytics.js-integration":166,"is":18,"global-queue":196}],
-126: [function(require, module, exports) {
+}, {"each":4,"analytics.js-integration":168,"is":19,"global-queue":196}],
+128: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -15389,8 +16399,8 @@ Klaviyo.prototype.track = function(track) {
   }));
 };
 
-}, {"analytics.js-integration":166,"global-queue":196,"next-tick":57}],
-127: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"global-queue":196,"next-tick":58}],
+129: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -15538,8 +16548,8 @@ function convert(traits) {
   return arr;
 }
 
-}, {"facade":9,"clone":13,"each":4,"analytics.js-integration":166,"next-tick":57,"when":198}],
-128: [function(require, module, exports) {
+}, {"facade":9,"clone":13,"each":4,"analytics.js-integration":168,"next-tick":58,"when":198}],
+130: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -15611,8 +16621,8 @@ LuckyOrange.prototype.identify = function(identify) {
   window.__wtw_custom_user_data = traits;
 };
 
-}, {"facade":9,"analytics.js-integration":166,"use-https":168}],
-129: [function(require, module, exports) {
+}, {"facade":9,"analytics.js-integration":168,"use-https":170}],
+131: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -15705,8 +16715,8 @@ Lytics.prototype.track = function(track) {
   window.jstag.send(props);
 };
 
-}, {"alias":199,"analytics.js-integration":166}],
-130: [function(require, module, exports) {
+}, {"alias":199,"analytics.js-integration":168}],
+132: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -15939,8 +16949,8 @@ function lowercase(arr) {
   return ret;
 }
 
-}, {"alias":199,"convert-dates":200,"obj-case":42,"each":4,"includes":70,"analytics.js-integration":166,"is":18,"to-iso-string":195,"some":207}],
-207: [function(require, module, exports) {
+}, {"alias":199,"convert-dates":200,"obj-case":43,"each":4,"includes":73,"analytics.js-integration":168,"is":19,"to-iso-string":195,"some":212}],
+212: [function(require, module, exports) {
 
 /**
  * some
@@ -15974,7 +16984,7 @@ module.exports = function (arr, fn) {
 };
 
 }, {}],
-131: [function(require, module, exports) {
+133: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -16060,8 +17070,8 @@ Mojn.prototype.track = function(track) {
   return conv;
 };
 
-}, {"bind":55,"analytics.js-integration":166,"is":18,"when":198}],
-132: [function(require, module, exports) {
+}, {"bind":56,"analytics.js-integration":168,"is":19,"when":198}],
+134: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -16162,8 +17172,8 @@ function set(obj) {
   });
 }
 
-}, {"each":4,"analytics.js-integration":166,"global-queue":196}],
-133: [function(require, module, exports) {
+}, {"each":4,"analytics.js-integration":168,"global-queue":196}],
+135: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -16228,8 +17238,8 @@ MouseStats.prototype.identify = function(identify) {
   });
 };
 
-}, {"each":4,"analytics.js-integration":166,"is":18,"use-https":168}],
-134: [function(require, module, exports) {
+}, {"each":4,"analytics.js-integration":168,"is":19,"use-https":170}],
+136: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -16285,8 +17295,8 @@ Navilytics.prototype.track = function(track) {
   push('tagRecording', track.event());
 };
 
-}, {"analytics.js-integration":166,"global-queue":196}],
-135: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"global-queue":196}],
+137: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -16356,8 +17366,8 @@ Nudgespot.prototype.track = function(track) {
   window.nudgespot.track(track.event(), track.properties());
 };
 
-}, {"alias":199,"analytics.js-integration":166}],
-136: [function(require, module, exports) {
+}, {"alias":199,"analytics.js-integration":168}],
+138: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -16566,8 +17576,8 @@ function api(action, value) {
   window.olark('api.' + action, value);
 }
 
-}, {"use-https":168,"analytics.js-integration":166,"next-tick":57}],
-137: [function(require, module, exports) {
+}, {"use-https":170,"analytics.js-integration":168,"next-tick":58}],
+139: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -16746,8 +17756,8 @@ function getExperiments(options) {
   }, [], options.activeExperimentIds);
 }
 
-}, {"each":4,"foldl":180,"analytics.js-integration":166,"global-queue":196,"next-tick":57}],
-138: [function(require, module, exports) {
+}, {"each":4,"foldl":17,"analytics.js-integration":168,"global-queue":196,"next-tick":58}],
+140: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -16859,8 +17869,8 @@ Outbound.prototype.alias = function(alias) {
   window.outbound.identify(alias.userId(), { previousId: alias.previousId() });
 };
 
-}, {"analytics.js-integration":166,"omit":205}],
-139: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"omit":210}],
+141: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -16963,8 +17973,8 @@ PerfectAudience.prototype.completedOrder = function(track) {
   push('track', track.event(), props);
 };
 
-}, {"analytics.js-integration":166,"global-queue":196}],
-140: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"global-queue":196}],
+142: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -17009,8 +18019,26 @@ Pingdom.prototype.loaded = function() {
   return !!(window._prum && window._prum.push !== Array.prototype.push);
 };
 
-}, {"load-date":194,"analytics.js-integration":166,"global-queue":196}],
-141: [function(require, module, exports) {
+}, {"load-date":213,"analytics.js-integration":168,"global-queue":196}],
+213: [function(require, module, exports) {
+
+
+/*
+ * Load date.
+ *
+ * For reference: http://www.html5rocks.com/en/tutorials/webperformance/basics/
+ */
+
+var time = new Date()
+  , perf = window.performance;
+
+if (perf && perf.timing && perf.timing.responseEnd) {
+  time = new Date(perf.timing.responseEnd);
+}
+
+module.exports = time;
+}, {}],
+143: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -17105,8 +18133,8 @@ Piwik.prototype.track = function(track) {
   push('trackEvent', category, action, name, value);
 };
 
-}, {"each":4,"analytics.js-integration":166,"is":18,"global-queue":196}],
-142: [function(require, module, exports) {
+}, {"each":4,"analytics.js-integration":168,"is":19,"global-queue":196}],
+144: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -17222,8 +18250,8 @@ function convertDate(date) {
   return Math.floor(date / 1000);
 }
 
-}, {"convert-dates":200,"analytics.js-integration":166,"global-queue":196}],
-143: [function(require, module, exports) {
+}, {"convert-dates":200,"analytics.js-integration":168,"global-queue":196}],
+145: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -17309,8 +18337,8 @@ Qualaroo.prototype.track = function(track) {
   this.identify(new Identify({ traits: traits }));
 };
 
-}, {"analytics.js-integration":166,"global-queue":196,"facade":9,"bind":55,"when":198}],
-144: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"global-queue":196,"facade":9,"bind":56,"when":198}],
+146: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -17517,8 +18545,8 @@ Quantcast.prototype._labels = function(type) {
   return [type, ret].join('.');
 };
 
-}, {"analytics.js-integration":166,"global-queue":196,"reduce":208,"use-https":168}],
-208: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"global-queue":196,"reduce":214,"use-https":170}],
+214: [function(require, module, exports) {
 
 /**
  * Reduce `arr` with `fn`.
@@ -17544,7 +18572,7 @@ module.exports = function(arr, fn, initial){
   return curr;
 };
 }, {}],
-145: [function(require, module, exports) {
+147: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -17628,8 +18656,8 @@ RollbarIntegration.prototype.identify = function(identify) {
   rollbar.configure({ payload: { person: person } });
 };
 
-}, {"extend":68,"analytics.js-integration":166,"is":18}],
-146: [function(require, module, exports) {
+}, {"extend":71,"analytics.js-integration":168,"is":19}],
+148: [function(require, module, exports) {
 
 var integration = require('analytics.js-integration');
 
@@ -17701,8 +18729,8 @@ Route.prototype.track = function(track) {
   window._route.track(track.event());
 };
 
-}, {"analytics.js-integration":166}],
-147: [function(require, module, exports) {
+}, {"analytics.js-integration":168}],
+149: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -17814,8 +18842,8 @@ SaaSquatch.prototype.group = function(group) {
   this.load();
 };
 
-}, {"analytics.js-integration":166}],
-148: [function(require, module, exports) {
+}, {"analytics.js-integration":168}],
+150: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -17890,8 +18918,8 @@ SatisMeter.prototype.identify = function(identify) {
   window.satismeter(traits);
 };
 
-}, {"analytics.js-integration":166,"when":198}],
-149: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"when":198}],
+151: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -18166,8 +19194,8 @@ function scheme() {
 
 function noop() {}
 
-}, {"ad-params":209,"clone":13,"cookie":58,"extend":68,"analytics.js-integration":166,"segmentio/json@1.0.0":59,"store":210,"protocol":211,"send-json":212,"top-domain":189,"utm-params":213,"uuid":78}],
-209: [function(require, module, exports) {
+}, {"ad-params":215,"clone":13,"cookie":59,"extend":71,"analytics.js-integration":168,"segmentio/json@1.0.0":60,"store":216,"protocol":217,"send-json":218,"top-domain":190,"utm-params":219,"uuid":80}],
+215: [function(require, module, exports) {
 /**
  * Module dependencies.
  */
@@ -18210,8 +19238,8 @@ function ads(query){
     }
   }
 }
-}, {"querystring":27}],
-210: [function(require, module, exports) {
+}, {"querystring":28}],
+216: [function(require, module, exports) {
 
 /**
  * dependencies.
@@ -18306,8 +19334,8 @@ function all(){
   return ret;
 }
 
-}, {"unserialize":214,"each":177}],
-214: [function(require, module, exports) {
+}, {"unserialize":220,"each":179}],
+220: [function(require, module, exports) {
 
 /**
  * Unserialize the given "stringified" javascript.
@@ -18325,7 +19353,7 @@ module.exports = function(val){
 };
 
 }, {}],
-211: [function(require, module, exports) {
+217: [function(require, module, exports) {
 
 /**
  * Convenience alias
@@ -18408,7 +19436,7 @@ function set (protocol) {
 }
 
 }, {}],
-212: [function(require, module, exports) {
+218: [function(require, module, exports) {
 /**
  * Module dependencies.
  */
@@ -18507,8 +19535,8 @@ function base64(url, obj, _, fn){
   });
 }
 
-}, {"base64-encode":215,"has-cors":216,"jsonp":217,"json":59}],
-215: [function(require, module, exports) {
+}, {"base64-encode":221,"has-cors":222,"jsonp":223,"json":60}],
+221: [function(require, module, exports) {
 var utf8Encode = require('utf8-encode');
 var keyStr = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
 
@@ -18545,8 +19573,8 @@ function encode(input) {
 
     return output;
 }
-}, {"utf8-encode":218}],
-218: [function(require, module, exports) {
+}, {"utf8-encode":224}],
+224: [function(require, module, exports) {
 module.exports = encode;
 
 function encode(string) {
@@ -18575,7 +19603,7 @@ function encode(string) {
     return utftext;
 }
 }, {}],
-216: [function(require, module, exports) {
+222: [function(require, module, exports) {
 
 /**
  * Module exports.
@@ -18595,7 +19623,7 @@ try {
 }
 
 }, {}],
-217: [function(require, module, exports) {
+223: [function(require, module, exports) {
 /**
  * Module dependencies
  */
@@ -18682,7 +19710,7 @@ function jsonp(url, opts, fn){
 }
 
 }, {"debug":15}],
-213: [function(require, module, exports) {
+219: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -18722,8 +19750,8 @@ function utm(query){
   return ret;
 }
 
-}, {"querystring":27}],
-150: [function(require, module, exports) {
+}, {"querystring":28}],
+152: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -18779,8 +19807,8 @@ Sentry.prototype.identify = function(identify) {
   window.Raven.setUser(identify.traits());
 };
 
-}, {"analytics.js-integration":166,"is":18}],
-151: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"is":19}],
+153: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -18895,8 +19923,8 @@ SnapEngage.prototype.attachListeners = function() {
   });
 };
 
-}, {"analytics.js-integration":166,"is":18,"next-tick":57}],
-152: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"is":19,"next-tick":58}],
+154: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -18943,8 +19971,8 @@ Spinnakr.prototype.loaded = function() {
   return !!window._spinnakr;
 };
 
-}, {"bind":55,"analytics.js-integration":166,"when":198}],
-153: [function(require, module, exports) {
+}, {"bind":56,"analytics.js-integration":168,"when":198}],
+155: [function(require, module, exports) {
 /**
  * Module dependencies.
  */
@@ -19004,8 +20032,8 @@ SupportHero.prototype.identify = function(identify) {
   }
 };
 
-}, {"analytics.js-integration":166}],
-154: [function(require, module, exports) {
+}, {"analytics.js-integration":168}],
+156: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -19134,8 +20162,8 @@ Taplytics.prototype.reset = function() {
   push('reset');
 };
 
-}, {"analytics.js-integration":166,"is":18,"keys":73,"global-queue":196}],
-155: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"is":19,"keys":68,"global-queue":196}],
+157: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -19222,8 +20250,8 @@ Tapstream.prototype.track = function(track) {
   push('fireHit', slug(track.event()), [props.url]);
 };
 
-}, {"analytics.js-integration":166,"global-queue":196,"slug":172}],
-156: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"global-queue":196,"slug":174}],
+158: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -19386,8 +20414,8 @@ Trakio.prototype.alias = function(alias) {
   }
 };
 
-}, {"alias":199,"analytics.js-integration":166}],
-157: [function(require, module, exports) {
+}, {"alias":199,"analytics.js-integration":168}],
+159: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -19443,8 +20471,8 @@ TwitterAds.prototype.track = function(track) {
   });
 };
 
-}, {"each":4,"analytics.js-integration":166}],
-158: [function(require, module, exports) {
+}, {"each":4,"analytics.js-integration":168}],
+160: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -19561,8 +20589,8 @@ Userlike.prototype.attachListeners = function() {
   };
 };
 
-}, {"facade":9,"clone":13,"analytics.js-integration":166}],
-159: [function(require, module, exports) {
+}, {"facade":9,"clone":13,"analytics.js-integration":168}],
+161: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -19762,8 +20790,8 @@ function showClassicWidget(type, options) {
   push(type, 'classic_widget', options);
 }
 
-}, {"alias":199,"convert-dates":200,"analytics.js-integration":166,"global-queue":196,"to-unix-timestamp":219}],
-219: [function(require, module, exports) {
+}, {"alias":199,"convert-dates":200,"analytics.js-integration":168,"global-queue":196,"to-unix-timestamp":225}],
+225: [function(require, module, exports) {
 
 /**
  * Expose `toUnixTimestamp`.
@@ -19783,7 +20811,7 @@ function toUnixTimestamp (date) {
   return Math.floor(date.getTime() / 1000);
 }
 }, {}],
-160: [function(require, module, exports) {
+162: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -19904,8 +20932,8 @@ Vero.prototype.alias = function(alias) {
   }
 };
 
-}, {"component/cookie":58,"analytics.js-integration":166,"global-queue":196}],
-161: [function(require, module, exports) {
+}, {"component/cookie":59,"analytics.js-integration":168,"global-queue":196}],
+163: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -20079,8 +21107,8 @@ function variation(id) {
   return variationId ? experiment.comb_n[variationId] : null;
 }
 
-}, {"each":4,"analytics.js-integration":166,"next-tick":57}],
-162: [function(require, module, exports) {
+}, {"each":4,"analytics.js-integration":168,"next-tick":58}],
+164: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -20127,8 +21155,8 @@ WebEngage.prototype.loaded = function() {
   return !!window.webengage;
 };
 
-}, {"analytics.js-integration":166,"use-https":168}],
-163: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"use-https":170}],
+165: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -20226,8 +21254,8 @@ Woopra.prototype.track = function(track) {
   window.woopra.track(track.event(), track.properties());
 };
 
-}, {"each":4,"analytics.js-integration":166,"to-snake-case":167}],
-164: [function(require, module, exports) {
+}, {"each":4,"analytics.js-integration":168,"to-snake-case":169}],
+166: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -20328,8 +21356,8 @@ Wootric.prototype.page = function(page) {
   });
 };
 
-}, {"analytics.js-integration":166,"omit":205}],
-165: [function(require, module, exports) {
+}, {"analytics.js-integration":168,"omit":210}],
+167: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -20407,7 +21435,7 @@ function push(callback) {
   window.yandex_metrika_callbacks.push(callback);
 }
 
-}, {"bind":55,"analytics.js-integration":166,"next-tick":57,"when":198}],
+}, {"bind":56,"analytics.js-integration":168,"next-tick":58,"when":198}],
 5: [function(require, module, exports) {
 module.exports = {
   "name": "analytics",
